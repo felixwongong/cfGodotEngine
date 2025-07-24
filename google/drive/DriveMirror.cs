@@ -22,9 +22,7 @@ public partial class DriveMirror {
         try {
             await foreach (var status in RefreshAsync())
             {
-                EditorUtility.ShowProgress(status.progress, $"Refreshing Drive Mirror: {status.file.Name}");
             }
-            EditorUtility.HideProgress();
         }
         catch (Exception e) {
             DriveUtil.godotLogger.LogException(e);
