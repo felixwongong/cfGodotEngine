@@ -9,7 +9,7 @@ using Google.Apis.Drive.v3;
 using GoogleFile = Google.Apis.Drive.v3.Data.File;
 using SystemFile = System.IO.File;
 
-namespace cfGodotTemplate.GoogleDrive
+namespace cfGodotEngine.GoogleDrive
 {
     public class AssetDirectFileMirror : IFileMirrorHandler
     {
