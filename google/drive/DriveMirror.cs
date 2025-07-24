@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 using cfEngine.Logging;
 using cfGodotEngine.Core;
 using cfGodotEngine.Util;
-using cfGodotTemplate.Util;
-using cfGodotTemplate.GoogleDrive;
+using cfGodotEngine.GoogleDrive;
 
 namespace cfGodotEngine.GoogleDrive;
 
