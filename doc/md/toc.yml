@@ -2,3 +2,15 @@
   href: introduction.md
 - name: Getting Started
   href: getting-started.md
+- name: Logging
+  href: logging.md
+- name: Asset Management
+  href: asset-management.md
+- name: Settings
+  href: settings.md
+- name: Google Drive Mirror
+  href: google-drive-mirror.md
+- name: State Machine
+  href: state-machine.md
+- name: Resource Info
+  href: resource-info.md
