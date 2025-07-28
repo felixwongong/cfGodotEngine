@@ -14,10 +14,14 @@ public partial class GDAtlasPack: Resource
         var atlas = new GDAtlas();
         atlas.atlasId = atlasId;
         atlas.dimension = new Vector2(context.bounds.width, context.bounds.height);
-        var imageMap = new Dictionary<string, Rect2I>(); 
+        var imageMap = new Dictionary<string, AtlasTexture>(); 
         foreach (var (imageName, rect) in context.imageRectMap)
         {
-            imageMap.Add(imageName, new Rect2I(rect.x, rect.y, rect.width, rect.height));
+            var texture = new AtlasTexture();
+            texture.Atlas = atlasTexture;
+            texture.Region = new Rect2(rect.x, rect.y, rect.width, rect.height);
+            texture.SetName(imageName);
+            imageMap[imageName] = texture;
         }
         atlas.imageMap = imageMap;
         
