@@ -6,7 +6,7 @@ using Godot.Collections;
 
 namespace cfGodotEngine.GoogleDrive;
 
-[SettingPath("res://Settings/GoogleDrive/DriveMirrorSetting.tres")]
+[SettingPath("res://Setting/GoogleDrive/DriveMirrorSetting.tres")]
 [Tool]
 [GlobalClass]
 public partial class DriveMirrorSetting : Setting<DriveMirrorSetting> {
