@@ -1,3 +1,5 @@
+using System;
+using cfEngine.Rx;
 using Godot;
 
 namespace cfGodotEngine.Asset;
@@ -6,8 +8,16 @@ namespace cfGodotEngine.Asset;
 [GlobalClass]
 public partial class GDAtlasTextureRef: Resource
 {
-    [Signal]
-    public delegate void OnAtlasTextureUpdatedEventHandler(AtlasTexture texture);
+    private Relay<AtlasTexture> _onAtlasTextureUpdated;
+    public event Action<AtlasTexture> OnAtlasTextureUpdated
+    {
+        add
+        {
+            _onAtlasTextureUpdated ??= new Relay<AtlasTexture>(this);
+            _onAtlasTextureUpdated.AddListener(value);
+        }
+        remove => _onAtlasTextureUpdated?.RemoveListener(value);
+    }
 
     [Export]
     public GDAtlasPack atlasPack
@@ -38,7 +48,7 @@ public partial class GDAtlasTextureRef: Resource
     {
         if (atlasPack == null || string.IsNullOrEmpty(imageName))
         {
-            EmitSignal(SignalName.OnAtlasTextureUpdated, null);
+            _onAtlasTextureUpdated?.Dispatch(null);
             return;
         }
 
@@ -46,12 +56,11 @@ public partial class GDAtlasTextureRef: Resource
         {
             if(atlas.imageMap.TryGetValue(imageName, out var texture))
             {
-                EmitSignal(SignalName.OnAtlasTextureUpdated, texture);
+                _onAtlasTextureUpdated?.Dispatch(texture);
                 return;
             }
         }
 
-        EmitSignal("OnAtlasTextureUpdated", null);
+        _onAtlasTextureUpdated?.Dispatch(null);
     }
-
 }

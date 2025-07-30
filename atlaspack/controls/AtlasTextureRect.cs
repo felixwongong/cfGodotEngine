@@ -13,8 +13,11 @@ public partial class AtlasTextureRect: TextureRect
         get => _textureRef;
         set
         {
+            if (_textureRef != null)
+                _textureRef.OnAtlasTextureUpdated -= UpdateTexture;
             _textureRef = value;
-            textureRef.Connect(GDAtlasTextureRef.SignalName.OnAtlasTextureUpdated, new Callable(this, nameof(UpdateTexture)));
+            if (_textureRef != null)
+                textureRef.OnAtlasTextureUpdated += UpdateTexture;
         }
     }
 
