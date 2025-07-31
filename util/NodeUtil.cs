@@ -18,11 +18,12 @@ public static class NodeUtil
     public static void DontDestroyOnLoad(this Node node)
     {
         if (node == null)
-        {
             throw new ArgumentNullException(nameof(node), "Node cannot be null.");
-        }
 
         var sceneTree = GetSceneTree();
+        if(node.GetParent() == sceneTree.Root)
+            return;
+        
         sceneTree.Root.AddChild(node);
     }
 }

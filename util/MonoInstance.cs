@@ -15,14 +15,13 @@ public abstract partial class MonoInstance<T> : Node where T: MonoInstance<T>, n
             _instance = new T();
             _instance.Name = $"_{typeof(T).Name}";
             
-            if (Engine.GetMainLoop() is SceneTree sceneTree)
-                sceneTree.Root.AddChild(_instance);
+            NodeUtil.GetSceneTree().Root.AddChild(_instance);
             
             return _instance;
         }
     }
 
-    public MonoInstance()
+    protected MonoInstance()
     {
         _instance = this as T;
     }

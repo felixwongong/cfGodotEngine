@@ -29,9 +29,8 @@ namespace cfGodotEngine.SceneManagement
 
     public interface ISceneManager<out TScene> : IService
     {
-        public bool LoadScene(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single);
+        public void LoadScene(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single);
         public Task LoadSceneAsync(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single, IProgress<float> progress = null);
-        public TScene GetActiveScene();
         public TScene GetScene(string sceneName);
     }
 }
