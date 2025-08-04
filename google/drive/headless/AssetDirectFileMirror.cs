@@ -1,6 +1,7 @@
 #if CF_GOOGLE_DRIVE
 
 using System.Collections.Generic;
+using System.Linq;
 using cfEngine.Logging;
 using cfEngine.Util;
 using cfGodotEngine.GoogleDrive;
@@ -28,6 +29,8 @@ namespace cfGodotEngine.GoogleDrive
             var getSetting = request.getSetting;
             var fileResource = driveService.Files;
             var changeHandler = request.changeHandler;
+            logger.LogInfo($"[AssetDirectFileMirror.RefreshFilesAsync] Start refreshing google files, counts: {googleFiles.Count}\n{string.Join(", ", googleFiles.Select(x => x.Name).ToArray())}");
+            
             for (var i = 0; i < googleFiles.Count; i++)
             {
                 var googleFile = googleFiles[i];
