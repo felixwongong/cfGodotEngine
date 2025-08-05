@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using cfEngine.Logging;
 using cfEngine.Util;
 using cfGodotEngine.GoogleDrive;
@@ -16,21 +17,23 @@ namespace cfGodotEngine.GoogleDrive
     {
         private readonly ILogger logger;
         private readonly string assetDirectoryPath;
-        
+
         public AssetDirectFileMirror(ILogger logger, string assetDirectoryPath)
         {
             this.logger = logger;
             this.assetDirectoryPath = assetDirectoryPath;
         }
 
-        public async IAsyncEnumerable<RefreshStatus> RefreshFilesAsync(DriveService driveService, RefreshRequest request)
+        public IEnumerable<Task<RefreshStatus>> RefreshFilesAsync(DriveService driveService, RefreshRequest request)
         {
             var googleFiles = request.googleFiles;
             var getSetting = request.getSetting;
             var fileResource = driveService.Files;
             var changeHandler = request.changeHandler;
             logger.LogInfo($"[AssetDirectFileMirror.RefreshFilesAsync] Start refreshing google files, counts: {googleFiles.Count}\n{string.Join(", ", googleFiles.Select(x => x.Name).ToArray())}");
-            
+
+            var tasks = new List<Task<RefreshStatus>>(googleFiles.Count);
+
             for (var i = 0; i < googleFiles.Count; i++)
             {
                 var googleFile = googleFiles[i];
@@ -40,20 +43,22 @@ namespace cfGodotEngine.GoogleDrive
                     logger.LogException(error);
                     continue;
                 }
-                
-                if (!getFileSetting.TryGetValue(out var optionalSetting) || !optionalSetting.TryGetValue(out var setting))
+
+                if (!getFileSetting.TryGetValue(out var optionalSetting) ||
+                    !optionalSetting.TryGetValue(out var setting))
                     continue;
-                
+
                 if (!DriveUtil.MimeFileHandlers.TryGetValue(googleFile.MimeType, out var handler))
                 {
-                    logger.LogInfo($"[AssetDirectFileMirror.RefreshFilesAsync] No handler found for mime type: {googleFile.MimeType}");
+                    logger.LogInfo(
+                        $"[AssetDirectFileMirror.RefreshFilesAsync] No handler found for mime type: {googleFile.MimeType}");
                     continue;
-                }   
-                
+                }
+
                 var directory = DirectoryUtil.CreateDirectoryIfNotExists(assetDirectoryPath, setting.assetPath);
                 var localFileName = GetLocalFileName(googleFile, setting);
-                
-                var result = await handler.DownloadAsync(
+
+                var task = handler.DownloadAsync(
                     fileResource,
                     new FileHandler.DownloadRequest
                     {
@@ -62,15 +67,23 @@ namespace cfGodotEngine.GoogleDrive
                         localName = localFileName,
                         changeHandler = changeHandler
                     }
-                );
-                
-                LogDownloadProgress(result, googleFile);
-                if (result != null && result.Status == DownloadStatus.Completed)
+                ).ContinueWith(resultTask =>
                 {
-                    yield return new RefreshStatus(googleFile, result, (float)i / googleFiles.Count);
-                }
-                OnDownloadEnd(result, googleFile, setting);
+                    if (resultTask.IsCompletedSuccessfully)
+                    {
+                        var result = resultTask.Result;
+                        LogDownloadProgress(result, googleFile);
+                        OnDownloadEnd(result, googleFile, setting);
+                        return new RefreshStatus(googleFile, result, (float)i / googleFiles.Count);
+                    }
+
+                    return new RefreshStatus(null, null, 1);
+                });
+
+                tasks.Add(task);
             }
+
+            return tasks;
         }
 
         public void RefreshFiles(DriveService driveService, in RefreshRequest request)
@@ -88,18 +101,20 @@ namespace cfGodotEngine.GoogleDrive
                     continue;
                 }
 
-                if (!getFileSetting.TryGetValue(out var optionalSetting) || !optionalSetting.TryGetValue(out var setting))
+                if (!getFileSetting.TryGetValue(out var optionalSetting) ||
+                    !optionalSetting.TryGetValue(out var setting))
                     continue;
 
                 if (!DriveUtil.MimeFileHandlers.TryGetValue(googleFile.MimeType, out var handler))
                 {
-                    logger.LogInfo($"[AssetDirectFileMirror.RefreshFiles] No handler found for mime type: {googleFile.MimeType}");
+                    logger.LogInfo(
+                        $"[AssetDirectFileMirror.RefreshFiles] No handler found for mime type: {googleFile.MimeType}");
                     continue;
                 }
 
                 var directory = DirectoryUtil.CreateDirectoryIfNotExists(assetDirectoryPath, setting.assetPath);
                 var localFileName = GetLocalFileName(googleFile, setting);
-                
+
                 var result = handler.DownloadWithStatus(
                     filesResource,
                     new FileHandler.DownloadRequest
@@ -120,11 +135,13 @@ namespace cfGodotEngine.GoogleDrive
         {
             if (progress is { Status: DownloadStatus.Completed })
             {
-                DriveUtil.godotLogger.LogInfo($"[AssetDirectFileMirror.RefreshFiles] Download completed, google file: {googleFile.Name}");
-                if (!setting.fileName.Equals(googleFile.Name)) 
+                DriveUtil.godotLogger.LogInfo(
+                    $"[AssetDirectFileMirror.RefreshFiles] Download completed, google file: {googleFile.Name}");
+                if (!setting.fileName.Equals(googleFile.Name))
                 {
                     setting.fileName = googleFile.Name;
-                    DriveUtil.godotLogger.LogInfo($"[AssetDirectFileMirror.RefreshFiles] Updated setting fileName to {googleFile.Name}");
+                    DriveUtil.godotLogger.LogInfo(
+                        $"[AssetDirectFileMirror.RefreshFiles] Updated setting fileName to {googleFile.Name}");
                 }
             }
         }
@@ -145,13 +162,16 @@ namespace cfGodotEngine.GoogleDrive
             switch (progress.Status)
             {
                 case DownloadStatus.Completed:
-                    logger.LogInfo($"[AssetDirectFileMirror.RefreshFiles] Download completed, google file: {googleFile.Name}");
+                    logger.LogInfo(
+                        $"[AssetDirectFileMirror.RefreshFiles] Download completed, google file: {googleFile.Name}");
                     break;
                 case DownloadStatus.Failed:
-                    logger.LogError($"[AssetDirectFileMirror.RefreshFiles] Download failed, google file: {googleFile.Name}, status: {progress.Status}\n Error: {progress.Exception?.Message}");
+                    logger.LogError(
+                        $"[AssetDirectFileMirror.RefreshFiles] Download failed, google file: {googleFile.Name}, status: {progress.Status}\n Error: {progress.Exception?.Message}");
                     break;
                 default:
-                    logger.LogWarning($"[AssetDirectFileMirror.RefreshFiles] Download status: {progress.Status}, google file: {googleFile.WritersCanShare}");
+                    logger.LogWarning(
+                        $"[AssetDirectFileMirror.RefreshFiles] Download status: {progress.Status}, google file: {googleFile.WritersCanShare}");
                     break;
             }
         }

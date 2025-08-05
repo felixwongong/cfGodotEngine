@@ -1,5 +1,6 @@
 #if CF_GOOGLE_DRIVE
 
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using cfEngine;
@@ -83,6 +84,7 @@ namespace cfGodotEngine.GoogleDrive
                 return res.StartPageTokenValue;
             }
             
+            logger.LogInfo("startPageToken: " + startPageToken);
             var request = driveService.Changes.List(startPageToken);
             request.Fields = "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,parents))";
             var response = await request.ExecuteAsync();

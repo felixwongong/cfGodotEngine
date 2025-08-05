@@ -1,5 +1,6 @@
 ﻿#if CF_GOOGLE_DRIVE
 
+using System;
 using cfGodotEngine.Util;
 using Godot;
 using Godot.Collections;
@@ -10,22 +11,28 @@ namespace cfGodotEngine.GoogleDrive;
 [Tool]
 [GlobalClass]
 public partial class DriveMirrorSetting : Setting<DriveMirrorSetting> {
-    [Export(PropertyHint.File, "*.json")] private string _serviceAccountCredentialJsonPath;
-
-    public string serviceAccountCredentialJson {
-        get
+    [Export(PropertyHint.File, "*.json")]
+    private string serviceAccountCredentialJsonPath
+    {
+        get => _serviceAccountCredentialJsonPath;
+        set
         {
-            if (!FileAccess.FileExists(_serviceAccountCredentialJsonPath)) 
+            _serviceAccountCredentialJsonPath = value;
+            
+            if (!FileAccess.FileExists(serviceAccountCredentialJsonPath)) 
             {
-                DriveUtil.godotLogger.LogError($"[GDriveMirrorSetting.serviceAccountCredentialJson] File does not exist at path: {_serviceAccountCredentialJsonPath}");
-                return string.Empty;
+                DriveUtil.godotLogger.LogError($"[GDriveMirrorSetting.serviceAccountCredentialJson] File does not exist at path: {serviceAccountCredentialJsonPath}");
+                serviceAccountCredentialJson =  string.Empty;
             }
 
-            using var file = FileAccess.Open(_serviceAccountCredentialJsonPath, FileAccess.ModeFlags.Read);
-            return file.GetAsText();
+            using var file = FileAccess.Open(serviceAccountCredentialJsonPath, FileAccess.ModeFlags.Read);
+            DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.serviceAccountCredentialJson] Loaded service account credential JSON from file");
+            serviceAccountCredentialJson = file.GetAsText();
         }
     }
-
+    private string _serviceAccountCredentialJsonPath;
+    public string serviceAccountCredentialJson { get; private set; }
+    
     [Export] public string changeChecksumToken = string.Empty;
     [Export] public Array<SettingItem> items;
     [Export] public bool refreshOnEnterPlayMode;
@@ -39,22 +46,24 @@ public partial class DriveMirrorSetting : Setting<DriveMirrorSetting> {
         }
     }
     
-    [ExportToolButton("Refresh")]
-    public Callable RefreshButton => Callable.From(Refresh);
+    // [ExportToolButton("Refresh")]
+    // public Callable RefreshButton => Callable.From(Refresh);
     public void Refresh() {
         DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.Refresh] refresh started");
-        DriveMirror.instance.RefreshWithProgressBar().ContinueWith(task => {
-            if (task.IsFaulted) {
-                DriveUtil.godotLogger.LogError($"[GDriveMirrorSetting.Refresh] refresh failed: {task.Exception}");
-            }
-            else {
-                DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.Refresh] refresh ended");
-            }
-        });
+        try
+        {
+            DriveMirror.instance.Refresh();
+        }
+        catch (Exception e)
+        {
+            DriveUtil.godotLogger.LogException(e);
+            return;
+        }
+        DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.Refresh] refresh ended");
     }
     
-    [ExportToolButton("Force Refresh All")]
-    public Callable ForceRefreshAllButton => Callable.From(ForceRefreshAll);
+    // [ExportToolButton("Force Refresh All")]
+    // public Callable ForceRefreshAllButton => Callable.From(ForceRefreshAll);
     public void ForceRefreshAll() {
         DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.ClearAllAndRefresh] clear all and refresh started");
         DriveMirror.instance.ClearAllAndRefreshWithProgressBar().ContinueWith(task => {

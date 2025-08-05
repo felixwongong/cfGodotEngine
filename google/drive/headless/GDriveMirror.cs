@@ -3,7 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using cfEngine;
+using Godot;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Download;
 using Google.Apis.Drive.v3;
@@ -37,7 +39,7 @@ public struct RefreshResult {
 }
 
 public interface IFileMirrorHandler {
-    IAsyncEnumerable<RefreshStatus> RefreshFilesAsync(DriveService driveService, RefreshRequest request);
+    IEnumerable<Task<RefreshStatus>> RefreshFilesAsync(DriveService driveService, RefreshRequest request);
     void RefreshFiles(DriveService driveService, in RefreshRequest request);
 }
 
@@ -55,16 +57,17 @@ public partial class DriveMirror {
         var setting = DriveMirrorSetting.GetSetting();
         var credentialJson = setting.serviceAccountCredentialJson;
         if (string.IsNullOrEmpty(credentialJson)) {
-            logger.LogInfo(
-                "[GDriveMirror.CreateFileRequest] setting.serviceAccountCredentialJson is null, refresh failed");
+            logger.LogInfo("[GDriveMirror.CreateFileRequest] setting.serviceAccountCredentialJson is null, refresh failed");
             return null;
         }
 
         var credential = GoogleCredential.FromJson(credentialJson)
             .CreateScoped(DriveService.ScopeConstants.Drive, DriveService.ScopeConstants.DriveMetadata);
 
+        logger.LogInfo("Creating Drive Service");
         return new DriveService(new BaseClientService.Initializer() {
-            HttpClientInitializer = credential
+            HttpClientInitializer = credential,
+            ApiKey = "ApiKeyTest"
         });
     }
 
@@ -75,26 +78,28 @@ public partial class DriveMirror {
         return request;
     }
 
-    public IAsyncEnumerable<RefreshStatus> ClearAllAndRefreshAsync() {
+    public Task<IEnumerable<RefreshStatus>> ClearAllAndRefreshAsync() {
         var setting = DriveMirrorSetting.GetSetting();
         setting.changeChecksumToken = string.Empty;
         return RefreshAsync();
     }
-
-    public async IAsyncEnumerable<RefreshStatus> RefreshAsync() {
-        logger.LogInfo("[GDriveMirror.RefreshAsync] start refresh files");
+    
+    public async Task<IEnumerable<RefreshStatus>> RefreshAsync() {
+        GD.Print("[GDriveMirror.RefreshAsync] start refresh files");
 
         _refreshCancelToken = new CancellationTokenSource();
 
         var driveService = CreateDriveService();
-        if (driveService == null) yield break;
+        if (driveService == null) throw new Exception("[GDriveMirror.RefreshAsync] CreateDriveService failed");
 
         var request = CreateFileRequest(driveService);
-        if (request == null) yield break;
+        if (request == null) throw new Exception("[GDriveMirror.RefreshAsync] CreateFileRequest failed");
 
+        if (string.IsNullOrEmpty(driveService.ApiKey))
+            throw new Exception("[GDriveMirror.RefreshAsync] DriveService.ApiKey is null or empty. Please check your service account credentials.");
+        
         var changeHandler = new ChangeHandler(DriveUtil.godotLogger);
-        var newChangeChecksumToken =
-            await changeHandler.LoadChangesAsync(driveService, DriveMirrorSetting.GetSetting().changeChecksumToken);
+        var newChangeChecksumToken = await changeHandler.LoadChangesAsync(driveService, DriveMirrorSetting.GetSetting().changeChecksumToken);
         var response = await request.ExecuteAsync(_refreshCancelToken.Token);
         var refreshRequest = new RefreshRequest() {
             googleFiles = response.Files,
@@ -102,14 +107,10 @@ public partial class DriveMirror {
             changeHandler = changeHandler
         };
 
-        await foreach (var status in _mirrorHandler.RefreshFilesAsync(driveService, refreshRequest)) {
-            yield return status;
-        }
-
+        var result = await Task.WhenAll(_mirrorHandler.RefreshFilesAsync(driveService, refreshRequest));
+        
         DriveMirrorSetting.GetSetting().changeChecksumToken = newChangeChecksumToken;
-        logger.LogInfo("[GDriveMirror.RefreshAsync] refresh files succeed");
-
-        _refreshCancelToken = null;
+        return result;
     }
 
     public void Refresh() {

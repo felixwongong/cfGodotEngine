@@ -19,10 +19,9 @@ public partial class DriveMirror {
     }
 
     public async Task RefreshWithProgressBar() {
-        try {
-            await foreach (var status in RefreshAsync())
-            {
-            }
+        try
+        {
+            await RefreshAsync();
         }
         catch (Exception e) {
             DriveUtil.godotLogger.LogException(e);
@@ -30,9 +29,9 @@ public partial class DriveMirror {
     }
     
     public async Task ClearAllAndRefreshWithProgressBar() {
-        try {
-            await foreach (var status in ClearAllAndRefreshAsync()) {
-            }
+        try
+        {
+            await ClearAllAndRefreshAsync();
         }
         catch (Exception e) {
             DriveUtil.godotLogger.LogException(e);
