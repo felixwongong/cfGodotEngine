@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using cfEngine.Extension;
 using cfEngine.Logging;
 using cfGodotEngine.Util;
 using Godot;
@@ -10,17 +9,24 @@ namespace cfGodotEngine.SceneManagement;
 
 public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneManager<Node>
 {
-    struct LoadingProcess
+    struct PreloadProcess
     {
         public string sceneKey;
         public IProgress<float> progress;
+        
+        public void Deconstruct(out string sceneKey, out IProgress<float> progress)
+        {
+            sceneKey = this.sceneKey;
+            progress = this.progress;
+        }
     }
     
     private readonly ILogger logger;
     
-    private Dictionary<string, TaskCompletionSource<PackedScene>> sceneLoadTasks = new();
+    private Dictionary<string, TaskCompletionSource<PackedScene>> preloadTasks = new();
+    private List<PreloadProcess> preloadProcesses = new();
+    
     private HashSet<string> activeSceneSet = new();
-    private List<LoadingProcess> loadingProcessQueue = new();
 
     public GodotSceneManager()
     {
@@ -32,14 +38,22 @@ public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneM
         base._Process(delta);
 
         int write = 0;
-        for (var read = 0; read < loadingProcessQueue.Count; read++)
+        for (var read = 0; read < preloadProcesses.Count; read++)
         {
-            var process = loadingProcessQueue[read];
-            var sceneKey = process.sceneKey;
-            var progress = process.progress;
+            var process = preloadProcesses[read];
+            var (sceneKey, progress) = process;
 
-            if (!sceneLoadTasks.TryGetValue(sceneKey, out var taskSource) || taskSource.Task.IsCompleted)
+            if (!preloadTasks.TryGetValue(sceneKey, out var taskSource))
+            {
+                logger.LogError($"Preload task source not found for scene key: {sceneKey}");
                 continue;
+            }
+
+            if (taskSource.Task.IsCompleted)
+            {
+                progress.Report(1f);
+                continue;
+            }
 
             var status = ResourceLoader.LoadThreadedGetStatus(sceneKey, progressArray);
             progress?.Report(progressArray[0].As<float>());
@@ -50,7 +64,7 @@ public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneM
                     taskSource.SetException(new Exception($"Failed to load scene: {sceneKey}, status: {status}"));
                     break;
                 case ResourceLoader.ThreadLoadStatus.InProgress:
-                    loadingProcessQueue[write++] = process;
+                    preloadProcesses[write++] = process;
                     continue;
                 case ResourceLoader.ThreadLoadStatus.Loaded:
                     var resource = ResourceLoader.LoadThreadedGet(sceneKey);
@@ -61,34 +75,53 @@ public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneM
                     break;
             }
         }
-        if (write < loadingProcessQueue.Count)
+        if (write < preloadProcesses.Count)
         {
-            loadingProcessQueue.RemoveRange(write, loadingProcessQueue.Count - write);
+            preloadProcesses.RemoveRange(write, preloadProcesses.Count - write);
         }
     }
 
-    public void LoadScene(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single)
+    public Node LoadScene(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single)
     {
-        if (sceneLoadTasks.TryGetValue(sceneKey, out var t))
+        if (preloadTasks.TryGetValue(sceneKey, out var t))
         {
-            if (t.Task.IsCompletedSuccessfully)
+            var task = t.Task;
+            if (task.IsCompleted)
             {
-                HandleShowScene(t.Task.Result, mode);
-                return;
+                if (!task.IsFaulted)
+                    return ShowScene(t.Task.Result, mode);
+                
+                //if preload task already failed, return anyway, dun start the scene loading process again
+                logger.LogError($"Preload task failed, cannot load scene: {sceneKey}, err: {task.Exception?.Message}, stack trace: {task.Exception?.StackTrace}. If you want to retry loading the scene, please call LoadSceneAsync instead.");
+                return null;
             }
-            
+
             t.SetCanceled();
-            sceneLoadTasks.Remove(sceneKey);
+            preloadTasks.Remove(sceneKey);
+            var key = sceneKey;
+            preloadProcesses.RemoveAt(preloadProcesses.FindIndex(x => x.sceneKey == key));
+            return null;
         }
 
+        var source = new TaskCompletionSource<PackedScene>();
         var scene = ResourceLoader.Load<PackedScene>(sceneKey);
         if (scene == null)
-            return;
-        
-        HandleShowScene(scene, mode);
+        {
+            var ex = new ArgumentException($"Failed to load scene: {sceneKey}", nameof(sceneKey));
+            source.SetException(ex);
+            logger.LogException(ex);
+            preloadTasks.Add(sceneKey, source);
+            return null;
+        }
+        else
+        {
+            source.SetResult(scene);
+            preloadTasks.Add(sceneKey, source);
+            return ShowScene(scene, mode);
+        }
     }
 
-    private void HandleShowScene(PackedScene newScene, LoadSceneMode mode)
+    private Node ShowScene(PackedScene newScene, LoadSceneMode mode)
     {
         switch (mode)
         {
@@ -102,7 +135,7 @@ public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneM
                         continue;
                     if (!TryGetSceneNode(sceneName, out var sceneNode))
                     {
-                        logger.LogException(new KeyNotFoundException($"Scene node not found: {sceneName}"));
+                        logger.LogException(new KeyNotFoundException($"Scene node not found while removing: {sceneName}"));
                         continue;
                     }
                     
@@ -114,64 +147,71 @@ public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneM
                 sceneTree.Root.RemoveChild(currentScene);
                 currentScene.QueueFree();
                 
-                AddSceneToRoot(newScene);
+                return AddSceneToRoot(newScene);
                 break;
             }
             case LoadSceneMode.Additive:
             {
-                if (TryGetSceneNode(newScene.GetName(), out _))
-                    return;
-                AddSceneToRoot(newScene);
+                return AddSceneToRoot(newScene);
                 break;
             }
             default:
                 throw new ArgumentOutOfRangeException(nameof(mode));
         }
 
-        void AddSceneToRoot(PackedScene newScene)
+        Node AddSceneToRoot(PackedScene newScene)
         {
-            var sceneTree = GetSceneTree();
-            var currentScene = sceneTree.GetCurrentScene();
-            if (currentScene != null && currentScene.GetName().Equals(newScene.GetName()))
-            {
-                Log.LogWarning($"Attempting to add a scene that is already the current scene. sceneName: {newScene.GetName()}");
-                return;
-            }
             var sceneNode = newScene.Instantiate();
             GetSceneTree().Root.AddChild(sceneNode);
+            return sceneNode;
         }
     }
 
-    public Task LoadSceneAsync(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single, IProgress<float> progress = null)
+    public Task<Node> LoadSceneAsync(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single,
+        IProgress<float> progress = null)
     {
+        var m = mode;
         {
-            if (sceneLoadTasks.TryGetValue(sceneKey, out var taskSource))
-                return taskSource.Task;
+            if (preloadTasks.TryGetValue(sceneKey, out var taskSource))
+                return taskSource.Task.ContinueWith(result =>
+                {
+                    if (result.IsCompletedSuccessfully)
+                        return ShowScene(result.Result, m);
+
+                    if (result.IsFaulted)
+                        Log.LogException(result.Exception);
+                    return null;
+                });
         }
 
         {
-            var m = mode;
             var taskSource = new TaskCompletionSource<PackedScene>();
-            taskSource.Task.ContinueWithSynchronized(result =>
+            var instantiateTask = taskSource.Task.ContinueWith(result =>
             {
                 if (result.IsCompletedSuccessfully)
-                    HandleShowScene(result.Result, m);
+                    return ShowScene(result.Result, m);
+                if (result.IsFaulted)
+                    Log.LogException(result.Exception);
+                return null;
             });
-            sceneLoadTasks[sceneKey] = taskSource;
+        
+            preloadTasks[sceneKey] = taskSource;
 
             var error = ResourceLoader.LoadThreadedRequest(sceneKey);
             if (error == Error.Failed)
             {
-                taskSource.SetException(new Exception($"Failed to load scene: {sceneKey}, err: {error}"));
-                return taskSource.Task;
+                var ex = new Exception($"Failed to load scene: {sceneKey}, err: {error}");
+                taskSource.SetException(ex);
+                return instantiateTask;
             }
             
-            loadingProcessQueue.Add(new LoadingProcess()
+            preloadProcesses.Add(new PreloadProcess()
             {
                 progress = progress,
                 sceneKey = sceneKey
             });
-            return taskSource.Task;
+
+            return instantiateTask;
         }
     }
 

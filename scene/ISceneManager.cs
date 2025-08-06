@@ -27,10 +27,10 @@ namespace cfGodotEngine.SceneManagement
         Additive
     }
 
-    public interface ISceneManager<out TScene> : IService
+    public interface ISceneManager<TScene> : IService
     {
-        public void LoadScene(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single);
-        public Task LoadSceneAsync(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single, IProgress<float> progress = null);
+        public TScene LoadScene(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single);
+        public Task<TScene> LoadSceneAsync(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single, IProgress<float> progress = null);
         public TScene GetScene(string sceneName);
     }
 }
