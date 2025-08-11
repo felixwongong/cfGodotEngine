@@ -3,7 +3,7 @@
 using System.IO;
 using System.Threading.Tasks;
 using cfEngine.Serialize;
-// using CofyDev.Xml.Doc;
+using CofyDev.Xml.Doc;
 using Google.Apis.Download;
 using Google.Apis.Drive.v3;
 
@@ -19,8 +19,7 @@ namespace cfGodotEngine.GoogleDrive
             var status = request.DownloadWithStatus(sheetMemoryStream);
 
             var sheetByte = sheetMemoryStream.ToArray();
-            // var sheetData = CofyXmlDocParser.ParseExcel(sheetByte);
-            object sheetData = null;
+            var sheetData = CofyXmlDocParser.ParseExcel(sheetByte);
             var serialized = JsonSerializer.Instance.Serialize(sheetData);
             var fullPath = Path.Combine(downloadRequest.rootDirectoryInfo.FullName, $"{downloadRequest.localName}.json");
             File.WriteAllText(fullPath, serialized);
@@ -35,8 +34,7 @@ namespace cfGodotEngine.GoogleDrive
             var status = await request.DownloadAsync(sheetMemoryStream);
 
             var sheetByte = sheetMemoryStream.ToArray();
-            // var sheetData = CofyXmlDocParser.ParseExcel(sheetByte);
-            object sheetData = null;
+            var sheetData = CofyXmlDocParser.ParseExcel(sheetByte);
             var serialized = await JsonSerializer.Instance.SerializeAsync(sheetData);
             var fullPath = Path.Combine(downloadRequest.rootDirectoryInfo.FullName, $"{downloadRequest.localName}.json");
             await File.WriteAllTextAsync(fullPath, serialized);
