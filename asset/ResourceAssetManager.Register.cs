@@ -1,8 +1,9 @@
 using cfEngine.Asset;
+using cfEngine.Core;
 using cfGodotEngine.Asset;
 using Godot;
 
-namespace cfEngine.Core;
+namespace cfGodotEngine.Core;
 
 public static partial class GameExtension
 {
