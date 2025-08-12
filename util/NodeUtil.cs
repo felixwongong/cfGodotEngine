@@ -15,15 +15,16 @@ public static class NodeUtil
         return sceneTree;
     }
     
-    public static void DontDestroyOnLoad(this Node node)
+    public static T DontDestroyOnLoad<T>(this T node) where T: Node
     {
         if (node == null)
             throw new ArgumentNullException(nameof(node), "Node cannot be null.");
 
         var sceneTree = GetSceneTree();
         if(node.GetParent() == sceneTree.Root)
-            return;
+            return node;
         
         sceneTree.Root.AddChild(node);
+        return node;
     }
 }
