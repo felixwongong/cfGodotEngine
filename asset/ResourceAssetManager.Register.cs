@@ -7,14 +7,14 @@ namespace cfGodotEngine.Core;
 
 public static partial class GameExtension
 {
-    public static Game WithAsset(this Game game, ResourceAssetManager assetManager)
+    public static Domain WithAsset(this Domain domain, ResourceAssetManager assetManager)
     {
-        game.Register(assetManager, nameof(ResourceAssetManager));
-        return game;
+        domain.Register(assetManager, nameof(ResourceAssetManager));
+        return domain;
     }
     
-    public static AssetManager<Resource> GetAsset(this Game game)
+    public static AssetManager<Resource> GetAsset(this Domain domain)
     {
-        return game.GetService<ResourceAssetManager>(nameof(ResourceAssetManager));
+        return domain.GetService<ResourceAssetManager>(nameof(ResourceAssetManager));
     }
 }

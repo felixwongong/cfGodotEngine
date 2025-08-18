@@ -8,13 +8,13 @@ namespace cfEngine.Core
 {
     public static partial class GameExtension
     {
-        public static Game WithSceneManager<TScene>(this Game game, ISceneManager<TScene> sceneManager)
+        public static Domain WithSceneManager<TScene>(this Domain domain, ISceneManager<TScene> sceneManager)
         {
-            game.Register(sceneManager, $"ISceneManager<{typeof(TScene).Name}");
-            return game;
+            domain.Register(sceneManager, $"ISceneManager<{typeof(TScene).Name}");
+            return domain;
         }
 
-        public static ISceneManager<TScene> GetSceneManager<TScene>(this Game game) => game.GetService<ISceneManager<TScene>>($"ISceneManager<{typeof(TScene).Name}");
+        public static ISceneManager<TScene> GetSceneManager<TScene>(this Domain domain) => domain.GetService<ISceneManager<TScene>>($"ISceneManager<{typeof(TScene).Name}");
     }
 }
 
