@@ -15,14 +15,22 @@ public abstract partial class Binder<[MustBeVariant] T>: Node
             return;
 
         indexPathCache ??= indexPath;
-        godotObject.GetIndexed(indexPathCache);
+
+        var indexedProperty = godotObject.GetIndexed(indexPathCache);
+        if (indexedProperty.VariantType == Variant.Type.Nil)
+        {
+            GD.PrintErr($"Property '{propertyName}' not found on object {godotObject} at index path '{indexPath}'");
+            return;
+        }
+        
+        OnPropertyChanged(propertyName, indexedProperty);
     }
     
     public void OnPropertyChanged(string propertyName, Variant propertyValue)
     {
         if(!propertyName.Equals(this.propertyName)) 
             return;
-
+        
         var t = ValidatePropertyValue(propertyValue);
         if (t == null)
         {
@@ -35,6 +43,12 @@ public abstract partial class Binder<[MustBeVariant] T>: Node
 
     protected virtual T ValidatePropertyValue(Variant propertyValue)
     {
+        if(propertyValue.VariantType == Variant.Type.Nil)
+        {
+            GD.PrintErr($"Property '{propertyName}' is nil on object {this}");
+            return default;
+        }
+
         var t = propertyValue.As<T>();
         return t;
     }
