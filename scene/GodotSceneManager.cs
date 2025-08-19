@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using cfEngine.Logging;
+using cfGodotEngine.Core;
 using cfGodotEngine.Util;
 using Godot;
 
@@ -28,8 +29,13 @@ public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneM
     
     private HashSet<string> activeSceneSet = new();
 
-    public GodotSceneManager()
+    public GodotSceneManager(): this(new GodotLogger())
     {
+    }
+
+    public GodotSceneManager(ILogger logger)
+    {
+        this.logger = logger;
     }
 
     private Godot.Collections.Array progressArray = new();
