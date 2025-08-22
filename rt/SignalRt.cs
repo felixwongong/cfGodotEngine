@@ -1,5 +1,6 @@
 ﻿using cfEngine.Rx;
 using Godot;
+using Godot.Collections;
 
 namespace cfGodotEngine.Rt;
 
@@ -81,6 +82,17 @@ public class SignalRt<[MustBeVariant]A, [MustBeVariant]B>: Rt<(A a, B b)>
         valueArgs[1] = variantB;
         
         sourceNode.EmitSignal(signalName, valueArgs);
+
+#if TOOLS
+        if (EngineDebugger.IsActive())
+        {
+            EngineDebugger.SendMessage($"SignalRt/{sourceNode.Name}/{signalName}", new Array()
+            {
+                variantA,
+                variantB
+            });
+        }
+#endif
     }
 
     public void Set(A a, B b)
