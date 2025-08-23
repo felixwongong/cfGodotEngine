@@ -2,9 +2,9 @@
 using Godot;
 using Godot.Collections;
 
-namespace cfGodotEngine.Rt;
+namespace cfGodotEngine.Rx;
 
-public class SignalRt<[MustBeVariant]T>: Rt<T>
+public class SignalRx<[MustBeVariant]T>: Rx<T>
 {
     public readonly Node sourceNode;
     public readonly StringName signalName;
@@ -13,12 +13,12 @@ public class SignalRt<[MustBeVariant]T>: Rt<T>
     
     private Subscription _subscription;
 
-    private SignalRt()
+    private SignalRx()
     {
         singleArgs = new Variant[1];
     }
     
-    public SignalRt(Node sourceNode, StringName signalName): this()
+    public SignalRx(Node sourceNode, StringName signalName): this()
     {
         this.sourceNode = sourceNode;
         this.signalName = signalName;
@@ -40,7 +40,7 @@ public class SignalRt<[MustBeVariant]T>: Rt<T>
     }
 }
 
-public class SignalRt<[MustBeVariant]A, [MustBeVariant]B>: Rt<(A a, B b)>
+public class SignalRx<[MustBeVariant]A, [MustBeVariant]B>: Rx<(A a, B b)>
 {
     public readonly Node sourceNode;
     public readonly StringName signalName;
@@ -49,12 +49,12 @@ public class SignalRt<[MustBeVariant]A, [MustBeVariant]B>: Rt<(A a, B b)>
     
     private Subscription _subscription;
     
-    public SignalRt()
+    public SignalRx()
     {
         valueArgs = new Variant[2];
     }
 
-    public SignalRt(Node sourceNode, StringName signalName): this()
+    public SignalRx(Node sourceNode, StringName signalName): this()
     {
         this.sourceNode = sourceNode;
         this.signalName = signalName;
@@ -86,7 +86,7 @@ public class SignalRt<[MustBeVariant]A, [MustBeVariant]B>: Rt<(A a, B b)>
 #if TOOLS
         if (EngineDebugger.IsActive())
         {
-            EngineDebugger.SendMessage($"SignalRt/{sourceNode.Name}/{signalName}", new Array()
+            EngineDebugger.SendMessage($"SignalRt:{sourceNode.Name}/{signalName}", new Array()
             {
                 variantA,
                 variantB
@@ -98,20 +98,5 @@ public class SignalRt<[MustBeVariant]A, [MustBeVariant]B>: Rt<(A a, B b)>
     public void Set(A a, B b)
     {
         base.Set((a, b));
-    }
-}
-
-public class PropertySignalRt<[MustBeVariant]T>: SignalRt<string, T>
-{
-    private readonly string propertyName;
-    
-    public PropertySignalRt(Node sourceNode, StringName signalName, string propertyName) : base(sourceNode, signalName)
-    {
-        this.propertyName = propertyName;
-    }
-
-    public void Set(T value)
-    {
-        Set(propertyName, value);
     }
 }
