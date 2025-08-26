@@ -4,6 +4,17 @@ using Godot.Collections;
 
 namespace cfGodotEngine.Rx;
 
+[System.AttributeUsage(System.AttributeTargets.Delegate, Inherited = false, AllowMultiple = false)]
+public class CreateRtPropertyAttribute : System.Attribute
+{
+    public readonly string propertyName;
+
+    public CreateRtPropertyAttribute(string propertyName)
+    {
+        this.propertyName = propertyName;
+    }
+}
+
 public class SignalRx<[MustBeVariant]T>: Rx<T>
 {
     public readonly Node sourceNode;
