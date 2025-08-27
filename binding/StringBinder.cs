@@ -11,6 +11,8 @@ namespace cfGodotEngine.Binding;
 /// 2. override the <see cref="ParseValue"/> for adding parsing from object to string
 /// 3. override the <see cref="ValidateValue"/> to add custom validation for the object value
 /// </summary>
+
+[Tool]
 [GlobalClass]
 public partial class StringBinder: Binder
 {
