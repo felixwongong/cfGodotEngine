@@ -20,7 +20,7 @@ public partial class SearchableDropdown : Control
         }
     }
 
-    public event Action<int, string> Selected; // (id, text)
+    public event Action<int, string> OnSelected; // (id, text)
 
     private readonly List<(int id, string text, string lower)> _items = new();
     private Button _button;
@@ -32,9 +32,10 @@ public partial class SearchableDropdown : Control
     {
         _button = new Button {
             Text = "Select…", 
-            SizeFlagsHorizontal = SizeFlags.Expand,
-            SizeFlagsVertical = SizeFlags.ExpandFill,
-            Alignment = HorizontalAlignment.Center,
+            AnchorLeft = 0,
+            AnchorTop = 0,
+            AnchorRight = 1,
+            AnchorBottom = 1,
         };
         
         _button.Pressed += ShowPopup;
@@ -92,6 +93,28 @@ public partial class SearchableDropdown : Control
         foreach (var (id, text) in items) AddItem(text, id);
         ApplyFilter(_search?.Text ?? "");
     }
+    
+    public void Accept(string text)
+    {
+        for (int i = 0; i < _list.ItemCount; i++)
+        {
+            if (_list.GetItemText(i) == text)
+            {
+                Accept(i);
+                return;
+            }
+        }
+    }
+
+    public void Accept(int idx)
+    {
+        if (idx < 0 || idx >= _list.ItemCount) return;
+        int id = (int)_list.GetItemMetadata(idx);
+        string text = _list.GetItemText(idx);
+        _button.Text = text;
+        OnSelected?.Invoke(id, text);
+        _popup.Hide();
+    }
 
     private void ShowPopup()
     {
@@ -116,15 +139,5 @@ public partial class SearchableDropdown : Control
             }
         }
         if (_list.ItemCount > 0) _list.Select(0);
-    }
-
-    private void Accept(int idx)
-    {
-        if (idx < 0 || idx >= _list.ItemCount) return;
-        int id = (int)_list.GetItemMetadata(idx);
-        string text = _list.GetItemText(idx);
-        _button.Text = text;
-        Selected?.Invoke(id, text);
-        _popup.Hide();
     }
 }

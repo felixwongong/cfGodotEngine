@@ -1,10 +1,11 @@
 using cfEngine.DataStructure;
+using cfGodotEngine.Util;
 using Godot;
 
 namespace cfGodotEngine.Binding;
 
 /// <summary>
-/// Binder for binding to a <see cref="IPropertyMap"/> using <see cref="propertyName"/>
+/// Binder for binding to a <see cref="IPropertyMap"/> using <see cref="bindingName"/>
 /// When property updated, signal <see cref="OnValueChanged"/> will be emitted, and <see cref="OnPropertyChanged(string,object)"/> will be called.
 /// For inherited member,
 /// 1. override the <see cref="OnPropertyChanged(string,object)"/> to add custom handling for the string value
@@ -18,7 +19,7 @@ public partial class StringBinder: Binder
 {
     [Signal] public delegate void OnValueChangedEventHandler(string value);
 
-    [Export] private string propertyName;
+    [Export] private BindingName bindingName;
 
     protected override void OnPropertyChanged(string propertyName, object propertyValue)
     {

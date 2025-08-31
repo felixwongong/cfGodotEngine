@@ -2,14 +2,14 @@ using System;
 using cfGodotEngine.UI;
 using Godot;
 
-namespace cfGodotEngine.binding;
+namespace cfGodotEngine.Binding;
 
 [CustomPropertyDrawer]
-public partial class TypeRefDrawer(PropertyHint hintType, string hintString) : CustomPropertyDrawer(hintType, hintString)
+public partial class TypeRefDrawer : CustomPropertyDrawer
 {
     private SearchableDropdown optionButton;
 
-    protected override void _BuildNode()
+    protected override void _BuildNode(PropertyHint hintType, string hintString)
     {
         optionButton = new SearchableDropdown()
         {
