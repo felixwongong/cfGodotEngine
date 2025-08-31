@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using cfGodotEngine.Util;
 
 namespace cfGodotEngine.UI;
 
@@ -88,9 +89,9 @@ public partial class OptionDropdown : Control
     
     public void Clear()
     {
-        _items.Clear();
-        _list.Clear();
-        _button.Text = "Select…";
+        _items?.Clear();
+        if(_list.IsAlive()) _list?.Clear();
+        if(_button.IsAlive()) _button.Text = "Select…";
     }
 
     public void AddItem(string id, string displayText = "")
@@ -144,6 +145,9 @@ public partial class OptionDropdown : Control
 
     private void ApplyFilter(string filter)
     {
+        if(!_list.IsAlive())
+            return;
+        
         _list.Clear();
         
         int selectingIdx = -1;

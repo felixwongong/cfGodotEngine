@@ -30,21 +30,6 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
                 SizeFlagsStretchRatio = 1,
             };
             
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                foreach (var type in assembly.GetTypes())
-                {
-                    if (typeof(IBindingSource).IsAssignableFrom(type) && type != typeof(IBindingSource))
-                    {
-                        sourceTypeSelector.AddItem(type.AssemblyQualifiedName, type.Name);
-                    }
-                }
-            }
-            
-            if(bindingName != null && !string.IsNullOrWhiteSpace(bindingName.typeName)) {
-                sourceTypeSelector.Select(bindingName.typeName);
-            } 
-            
             sourceTypeSelector.OnSelected += OnSourceTypeSelected;
         }
 
@@ -91,8 +76,32 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
         }
     }
 
+    public override void _Ready()
+    {
+        base._Ready();
+        
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            foreach (var type in assembly.GetTypes())
+            {
+                if (typeof(IBindingSource).IsAssignableFrom(type) && type != typeof(IBindingSource))
+                {
+                    sourceTypeSelector.AddItem(type.AssemblyQualifiedName, type.Name);
+                }
+            }
+        }
+
+        var bindingName = GetPropertyValue().As<BindingName>();
+        if(bindingName != null && !string.IsNullOrWhiteSpace(bindingName.typeName)) {
+            sourceTypeSelector.Select(bindingName.typeName);
+        } 
+    }
+
     protected override void OnPropertyUpdated(Variant propertyValue)
     {
+        if(!this.IsAlive())
+            return;
+            
         var bindingName = propertyValue.As<BindingName>();
         if (bindingName == null)
         {
@@ -102,7 +111,6 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
 
         if (!string.IsNullOrWhiteSpace(bindingName.typeName))
         {
-            GD.Print("Updated BindingNameDrawer with type:", bindingName.typeName);
             sourceTypeSelector.Select(bindingName.typeName);
             bindingNameOption.Clear();
             var type = Type.GetType($"{bindingName.typeName}");
@@ -113,16 +121,10 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
             }
 
             var method = type.GetMethod("GetBindingKeys", BindingFlags.Public | BindingFlags.Static);
-            if (method == null)
-            {
-                GD.PrintErr($"BindingNameDrawer: Cannot find static method GetBindingKeys in type {type.FullName}");
-                return;
-            }
-
-            var keys = method.Invoke(null, null) as IEnumerable<string>;
+            var keys = method?.Invoke(null, null) as IEnumerable<string>;
             if (keys == null)
             {
-                GD.PrintErr($"BindingNameDrawer: GetBindingKeys did not return IEnumerable<string> in type {type.FullName}");
+                GD.PrintErr($"BindingNameDrawer: Invalid or method GetBindingKeys not found in type {bindingName.typeName}");
                 return;
             }
             
@@ -137,5 +139,7 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
 
     protected override void _ClearNode()
     {
+        if(bindingNameOption.IsAlive()) bindingNameOption.Clear();
+        if(bindingNameField.IsAlive()) bindingNameField.Text = "";
     }
 }
