@@ -10,7 +10,7 @@ namespace cfGodotEngine.Binding;
 [CustomPropertyDrawer]
 public partial class BindingNameDrawer : CustomPropertyDrawer
 {
-    private SearchableDropdown sourceTypeSelector;
+    private OptionDropdown sourceTypeSelector;
     private OptionButton bindingNameOption;
     private LineEdit bindingNameField;
     
@@ -24,26 +24,25 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
         };
 
         {
-            sourceTypeSelector = new SearchableDropdown()
+            sourceTypeSelector = new OptionDropdown()
             {
                 SizeFlagsHorizontal = SizeFlags.ExpandFill,
                 SizeFlagsStretchRatio = 1,
             };
             
-            int id = 0;
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 foreach (var type in assembly.GetTypes())
                 {
                     if (typeof(IBindingSource).IsAssignableFrom(type) && type != typeof(IBindingSource))
                     {
-                        sourceTypeSelector.AddItem(type.AssemblyQualifiedName, id++);
+                        sourceTypeSelector.AddItem(type.AssemblyQualifiedName, type.Name);
                     }
                 }
             }
             
             if(bindingName != null && !string.IsNullOrWhiteSpace(bindingName.typeName)) {
-                sourceTypeSelector.Accept(bindingName.typeName);
+                sourceTypeSelector.Select(bindingName.typeName);
             } 
             
             sourceTypeSelector.OnSelected += OnSourceTypeSelected;
@@ -70,25 +69,26 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
         container.AddChild(bindingNameField);
         
         AddChild(container);
-    }
 
-    private void OnBindingNameUpdated(string input)
-    {
-        var bindingName = GetPropertyValue().As<BindingName>() ?? new BindingName();
-        bindingName.propertyName = input;
-        SetPropertyValue(bindingName);
-    }
+        void OnBindingNameUpdated(string input)
+        {
+            var bindingName = GetPropertyValue().As<BindingName>() ?? new BindingName();
+            bindingName.propertyName = input;
+            SetPropertyValue(bindingName);
+        }
 
-    private void OnBindingNameSelected(long index)
-    {
-        bindingNameField.Text = bindingNameOption.GetItemText((int)index);
-    }
+        void OnBindingNameSelected(long index)
+        {
+            bindingNameField.Text = bindingNameOption.GetItemText((int)index);
+            OnBindingNameUpdated(bindingNameField.Text);
+        }
 
-    private void OnSourceTypeSelected(int id, string type)
-    {
-        var bindingName = GetPropertyValue().As<BindingName>() ?? new BindingName();
-        bindingName.typeName = type;
-        SetPropertyValue(bindingName);
+        void OnSourceTypeSelected(string qualifiedName, string displayName)
+        {
+            var bindingName = GetPropertyValue().As<BindingName>() ?? new BindingName();
+            bindingName.typeName = qualifiedName;
+            SetPropertyValue(bindingName);
+        }
     }
 
     protected override void OnPropertyUpdated(Variant propertyValue)
@@ -103,7 +103,7 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
         if (!string.IsNullOrWhiteSpace(bindingName.typeName))
         {
             GD.Print("Updated BindingNameDrawer with type:", bindingName.typeName);
-            sourceTypeSelector.Accept(bindingName.typeName);
+            sourceTypeSelector.Select(bindingName.typeName);
             bindingNameOption.Clear();
             var type = Type.GetType($"{bindingName.typeName}");
             if (type == null)
@@ -131,6 +131,8 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
                 bindingNameOption.AddItem(key);
             }
         }
+        
+        bindingNameField.Text = bindingName.propertyName ?? "";
     }
 
     protected override void _ClearNode()

@@ -7,9 +7,6 @@ namespace cfGodotEngine.Binding;
 [CustomInspector]
 public abstract partial class Binder: Node
 {
-    [Export(PropertyHint.TypeString, "cfGodotEngine.Binding.IBindingSource")] 
-    private TypeRef sourceType;
-    
     private IBindingSource _bindingSource;
 
     public override void _Ready()
