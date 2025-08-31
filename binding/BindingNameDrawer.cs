@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using cfGodotEngine.UI;
 using cfGodotEngine.Util;
@@ -34,9 +35,9 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
             {
                 foreach (var type in assembly.GetTypes())
                 {
-                    if (typeof(IBindingSource).IsAssignableFrom(type))
+                    if (typeof(IBindingSource).IsAssignableFrom(type) && type != typeof(IBindingSource))
                     {
-                        sourceTypeSelector.AddItem(type.Name, id++);
+                        sourceTypeSelector.AddItem(type.AssemblyQualifiedName, id++);
                     }
                 }
             }
@@ -61,16 +62,26 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
                 SizeFlagsHorizontal = SizeFlags.ExpandFill,
                 SizeFlagsStretchRatio = 2,
             };
+            bindingNameField.TextChanged += OnBindingNameUpdated;
         }
         
         container.AddChild(sourceTypeSelector);
         container.AddChild(bindingNameOption);
         container.AddChild(bindingNameField);
+        
         AddChild(container);
+    }
+
+    private void OnBindingNameUpdated(string input)
+    {
+        var bindingName = GetPropertyValue().As<BindingName>() ?? new BindingName();
+        bindingName.propertyName = input;
+        SetPropertyValue(bindingName);
     }
 
     private void OnBindingNameSelected(long index)
     {
+        bindingNameField.Text = bindingNameOption.GetItemText((int)index);
     }
 
     private void OnSourceTypeSelected(int id, string type)
@@ -91,12 +102,13 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
 
         if (!string.IsNullOrWhiteSpace(bindingName.typeName))
         {
+            GD.Print("Updated BindingNameDrawer with type:", bindingName.typeName);
             sourceTypeSelector.Accept(bindingName.typeName);
             bindingNameOption.Clear();
-            var type = Type.GetType($"{bindingName.typeName}.BindingKey");
+            var type = Type.GetType($"{bindingName.typeName}");
             if (type == null)
             {
-                GD.PrintErr($"BindingNameDrawer: Cannot find type {bindingName.typeName}.BindingKey");
+                GD.PrintErr($"BindingNameDrawer: Cannot find type {bindingName.typeName}");
                 return;
             }
 
@@ -106,8 +118,14 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
                 GD.PrintErr($"BindingNameDrawer: Cannot find static method GetBindingKeys in type {type.FullName}");
                 return;
             }
+
+            var keys = method.Invoke(null, null) as IEnumerable<string>;
+            if (keys == null)
+            {
+                GD.PrintErr($"BindingNameDrawer: GetBindingKeys did not return IEnumerable<string> in type {type.FullName}");
+                return;
+            }
             
-            var keys = method.Invoke(null, null) as string[];
             foreach (var key in keys)
             {
                 bindingNameOption.AddItem(key);
@@ -117,8 +135,5 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
 
     protected override void _ClearNode()
     {
-        sourceTypeSelector?.Clear();
-        bindingNameOption?.Clear();
-        bindingNameField?.Clear();
     }
 }
