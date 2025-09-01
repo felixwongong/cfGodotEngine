@@ -1,3 +1,4 @@
+using cfEngine.DataStructure;
 using cfGodotEngine.Util;
 using Godot;
 
@@ -29,12 +30,14 @@ public abstract partial class Binder: Node
     private void SetSource(IBindingSource source)
     {
         if (_bindingSource != null)
-            _bindingSource.GetBindings?.UnregisterPropertyChange(OnPropertyChanged);
+            _bindingSource.GetBindings?.UnregisterPropertyChange(OnBindingValueChanged);
         
         _bindingSource = source;
+        OnBindingRestored(_bindingSource.GetBindings);
         if (_bindingSource != null)
-            _bindingSource.GetBindings?.RegisterPropertyChange(OnPropertyChanged);
+            _bindingSource.GetBindings?.RegisterPropertyChange(OnBindingValueChanged);
     }
 
-    protected abstract void OnPropertyChanged(string propertyName, object propertyValue);
+    protected abstract void OnBindingRestored(IPropertyMap bindingMap);
+    protected abstract void OnBindingValueChanged(string propertyName, object propertyValue);
 }
