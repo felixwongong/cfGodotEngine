@@ -6,9 +6,9 @@ namespace cfGodotEngine.Binding;
 
 /// <summary>
 /// Binder for binding to a <see cref="IPropertyMap"/> using <see cref="bindingName"/>
-/// When property updated, signal <see cref="OnValueChanged"/> will be emitted, and <see cref="OnPropertyChanged(string,object)"/> will be called.
+/// When property updated, signal <see cref="OnValueChanged"/> will be emitted, and <see cref="OnBindingValueChanged"/> will be called.
 /// For inherited member,
-/// 1. override the <see cref="OnPropertyChanged(string,object)"/> to add custom handling for the string value
+/// 1. override the <see cref="OnBindingValueChanged"/> to add custom handling for the string value
 /// 2. override the <see cref="ParseValue"/> for adding parsing from object to string
 /// 3. override the <see cref="ValidateValue"/> to add custom validation for the object value
 /// </summary>
@@ -21,7 +21,21 @@ public partial class StringBinder: Binder
 
     [Export] private BindingName bindingName;
 
-    protected override void OnPropertyChanged(string propertyName, object propertyValue)
+    protected override void OnBindingRestored(IPropertyMap bindingMap)
+    {
+        if (bindingMap == null)
+        {
+            GD.PrintErr("StringBinder: Binding map is null.");
+            return;
+        }
+
+        bindingMap.Get(bindingName.propertyName, out object propertyValue);
+        var parsed = ParseValue(propertyValue);
+        OnPropertyChanged(parsed);
+        EmitSignalOnValueChanged(parsed);
+    }
+
+    protected override void OnBindingValueChanged(string propertyName, object propertyValue)
     {
         var parsed = ParseValue(propertyValue);
         OnPropertyChanged(parsed);
