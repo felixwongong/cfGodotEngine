@@ -136,7 +136,7 @@ public partial class OptionDropdown : Control
 
     private void ShowPopup()
     {
-        var mousePos = GetGlobalMousePosition();
+        var mousePos = Vector2.Zero;
         dropdown.Popup(new Rect2I(new Vector2I((int)mousePos.X, (int)mousePos.Y), dropdown.Size));
         _searchFilter.Text = "";
         ApplyFilter("");
