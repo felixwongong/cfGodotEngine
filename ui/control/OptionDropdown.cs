@@ -10,14 +10,14 @@ public partial class OptionDropdown : Control
 {
     public Vector2I dropdownSize
     {
-        get => dropdown.Size;
-        set => dropdown.Size = value;
+        get => _dropdown.Size;
+        set => _dropdown.Size = value;
     }
 
     public StyleBox dropDownStyle
     {
-        get => dropdown.GetThemeStylebox("normal");
-        set => dropdown.AddThemeStyleboxOverride("normal", value);
+        get => _dropdown.GetThemeStylebox("normal");
+        set => _dropdown.AddThemeStyleboxOverride("normal", value);
     }
 
     private string _placeholderText;
@@ -36,7 +36,7 @@ public partial class OptionDropdown : Control
 
     private readonly List<(string id, string displayText)> _items = new();
     private readonly Button _button;
-    private readonly PopupPanel dropdown;
+    private readonly PopupPanel _dropdown;
     private readonly LineEdit _searchFilter;
     private readonly ItemList _list;
 
@@ -53,7 +53,7 @@ public partial class OptionDropdown : Control
         };
         AddChild(_button);
         
-        dropdown = new PopupPanel { Size = new Vector2I(400, 600) };
+        _dropdown = new PopupPanel { Size = new Vector2I(400, 600) };
         var vb = new VBoxContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
         vb.AddThemeStyleboxOverride("normal", new StyleBoxFlat { BgColor = new Color("#1e1e1e"), BorderColor = new Color("#3e3e3e")});
         
@@ -64,25 +64,25 @@ public partial class OptionDropdown : Control
         vb.AddChild(_searchFilter);
         scroll.AddChild(_list);
         vb.AddChild(scroll);
-        dropdown.AddChild(vb);
-        AddChild(dropdown);
+        _dropdown.AddChild(vb);
+        AddChild(_dropdown);
 
         _button.Pressed += ShowPopup; 
         _searchFilter.TextChanged += ApplyFilter;
         _searchFilter.GuiInput += e => {
             if (e is InputEventKey k)
             {
-                if (k.Pressed && k.Keycode == Key.Escape) dropdown.Hide();
+                if (k.Pressed && k.Keycode == Key.Escape) _dropdown.Hide();
                 if (k.Pressed && k.Keycode == Key.Down) _list.GrabFocus();
             }
         };
-        //_list.ItemActivated += 
+        
         _list.ItemSelected += OnListItemSelected; // Enter/double-click
         _list.GuiInput += e => {
             if (e is InputEventKey k && k.Pressed)
             {
                 if (k.Keycode == Key.Enter) OnListItemSelected(_list.GetSelectedItems()[0]);
-                if (k.Keycode == Key.Escape) dropdown.Hide();
+                if (k.Keycode == Key.Escape) _dropdown.Hide();
             }
         };
     }
@@ -117,12 +117,20 @@ public partial class OptionDropdown : Control
         ApplyFilter(_searchFilter?.Text ?? "");
     }
 
+    public void Deselect()
+    {
+        _list.DeselectAll();
+        _button.Text = string.IsNullOrWhiteSpace(_placeholderText) ? "Select…" : _placeholderText;
+        selecting = string.Empty;
+    }
+
     private void OnListItemSelected(long listIndex)
     {
         var idx = (int)listIndex;
         if (idx < 0 || idx >= _list.ItemCount)
         {
-            GD.PrintErr("Overflow index selected: ", idx);
+            _button.Text = string.Empty;
+            selecting = string.Empty;
             return;
         }
         
@@ -131,13 +139,13 @@ public partial class OptionDropdown : Control
         _button.Text = text;
         selecting = id;
         OnSelected?.Invoke(id, text);
-        dropdown.Hide();
+        _dropdown.Hide();
     }
 
     private void ShowPopup()
     {
-        var mousePos = Vector2.Zero;
-        dropdown.Popup(new Rect2I(new Vector2I((int)mousePos.X, (int)mousePos.Y), dropdown.Size));
+        var mousePos = GetGlobalMousePosition();
+        _dropdown.Popup(new Rect2I(new Vector2I((int)mousePos.X, (int)mousePos.Y), _dropdown.Size));
         _searchFilter.Text = "";
         ApplyFilter("");
         _searchFilter.GrabFocus();
@@ -151,24 +159,23 @@ public partial class OptionDropdown : Control
         _list.Clear();
         
         int selectingIdx = -1;
-        var f = (filter ?? "").ToLowerInvariant();
-        foreach (var it in _items)
+        filter = (filter ?? "").ToLowerInvariant();
+        foreach (var (id, displayText) in _items)
         {
-            if (f.Length == 0 || it.id.ToLowerInvariant().Contains(f))
+            if (filter.Length == 0 || id.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
             {
                 int idx = _list.ItemCount;
-                _list.AddItem(it.displayText);
-                _list.SetItemMetadata(idx, it.id);
+                _list.AddItem(displayText);
+                _list.SetItemMetadata(idx, id);
                 
-                if (!string.IsNullOrEmpty(selecting) && it.id == selecting) selectingIdx = idx;
+                if (!string.IsNullOrEmpty(selecting) && id.Equals(selecting, StringComparison.InvariantCultureIgnoreCase)) 
+                    selectingIdx = idx;
             }
         }
 
-        if (_list.ItemCount > 0)
+        if (_list.ItemCount > 0 && selectingIdx != -1)
         {
-            selectingIdx = selectingIdx >= 0 ? selectingIdx : 0;
             _list.Select(selectingIdx);
-            OnListItemSelected(selectingIdx);
         }
     }
 }

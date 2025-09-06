@@ -12,6 +12,9 @@ public abstract partial class Binder: Node
     public override void _Ready()
     {
         base._Ready();
+        
+        if(Engine.IsEditorHint())
+            return;
 
         for (var x = GetParentOrNull<Node>(); x != null; x = x.GetParentOrNull<Node>())
         {

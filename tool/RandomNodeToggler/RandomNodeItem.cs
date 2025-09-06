@@ -1,6 +1,6 @@
 using Godot;
 
-namespace cfGodotEngine.Util;
+namespace cfGodotEngine.Tool;
 
 [Tool]
 [GlobalClass]

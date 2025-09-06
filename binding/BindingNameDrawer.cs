@@ -128,9 +128,15 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
                 return;
             }
             
+            int index = 0;
+            bindingNameOption.AddItem(string.Empty);
             foreach (var key in keys)
             {
+                index++;
                 bindingNameOption.AddItem(key);
+
+                if (key.Equals(bindingName.propertyName))
+                    bindingNameOption.Select(index);
             }
         }
         

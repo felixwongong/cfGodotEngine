@@ -2,7 +2,7 @@ using cfGodotEngine.Binding;
 using Godot;
 using Godot.Collections;
 
-namespace cfGodotEngine.Util;
+namespace cfGodotEngine.Tool;
 
 [Tool]
 [GlobalClass]
