@@ -7,11 +7,11 @@ namespace cfGodotEngine.Binding;
 [CustomPropertyDrawer]
 public partial class TypeRefDrawer : CustomPropertyDrawer
 {
-    private OptionDropdown optionButton;
+    private SearchableOptionDropdown _searchableOptionButton;
 
     protected override void _BuildNode(PropertyHint hintType, string hintString)
     {
-        optionButton = new OptionDropdown()
+        _searchableOptionButton = new SearchableOptionDropdown()
         {
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill,
@@ -36,12 +36,12 @@ public partial class TypeRefDrawer : CustomPropertyDrawer
             {
                 if (baseType.IsAssignableFrom(type))
                 {
-                    optionButton.AddItem(type.AssemblyQualifiedName, type.Name);
+                    _searchableOptionButton.AddItem(type.AssemblyQualifiedName, type.Name);
                 }
             }
         }
         
-        AddChild(optionButton);
+        AddChild(_searchableOptionButton);
     }
 
     protected override void OnPropertyUpdated(Variant propertyValue)

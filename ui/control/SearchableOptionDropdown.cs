@@ -6,8 +6,10 @@ using cfGodotEngine.Util;
 namespace cfGodotEngine.UI;
 
 [Tool]
-public partial class OptionDropdown : Control
+public partial class SearchableOptionDropdown : Control
 {
+    #region Config Param
+
     public Vector2I dropdownSize
     {
         get => _dropdown.Size;
@@ -20,7 +22,7 @@ public partial class OptionDropdown : Control
         set => _dropdown.AddThemeStyleboxOverride("normal", value);
     }
 
-    private string _placeholderText;
+    private string _placeholderText = "Select…";
 
     public string placeHolderText
     {
@@ -31,25 +33,24 @@ public partial class OptionDropdown : Control
             _searchFilter.PlaceholderText = value;
         }
     }
+
+    #endregion
     
     public event Action<string, string> OnSelected; 
 
-    private readonly List<(string id, string displayText)> _items = new();
     private readonly Button _button;
     private readonly PopupPanel _dropdown;
     private readonly LineEdit _searchFilter;
-    private readonly ItemList _list;
+    
+    private readonly List<(string id, string displayText)> _items = new();
+    private readonly ItemList _displayItems;
+    private int selectingIndex = -1;
 
-    private string selecting;
-
-    public OptionDropdown() : base()
+    public SearchableOptionDropdown() : base()
     {
         _button = new Button {
-            Text = "Select…", 
-            AnchorLeft = 0,
-            AnchorTop = 0,
-            AnchorRight = 1,
-            AnchorBottom = 1,
+            Text = placeHolderText,
+            AnchorsPreset = (int)LayoutPreset.FullRect,
         };
         AddChild(_button);
         
@@ -59,10 +60,10 @@ public partial class OptionDropdown : Control
         
         _searchFilter = new LineEdit { PlaceholderText = "Search…" };
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, SizeFlagsHorizontal = SizeFlags.ExpandFill};
-        _list = new ItemList { SelectMode = ItemList.SelectModeEnum.Single, SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill};
+        _displayItems = new ItemList { SelectMode = ItemList.SelectModeEnum.Single, SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill};
         
         vb.AddChild(_searchFilter);
-        scroll.AddChild(_list);
+        scroll.AddChild(_displayItems);
         vb.AddChild(scroll);
         _dropdown.AddChild(vb);
         AddChild(_dropdown);
@@ -73,25 +74,30 @@ public partial class OptionDropdown : Control
             if (e is InputEventKey k)
             {
                 if (k.Pressed && k.Keycode == Key.Escape) _dropdown.Hide();
-                if (k.Pressed && k.Keycode == Key.Down) _list.GrabFocus();
+                if (k.Pressed && k.Keycode == Key.Down) _displayItems.GrabFocus();
             }
         };
         
-        _list.ItemSelected += OnListItemSelected; // Enter/double-click
-        _list.GuiInput += e => {
+        _displayItems.ItemSelected += OnDisplayItemSelected;
+        _displayItems.GuiInput += e => {
             if (e is InputEventKey k && k.Pressed)
             {
-                if (k.Keycode == Key.Enter) OnListItemSelected(_list.GetSelectedItems()[0]);
+                if (k.Keycode == Key.Enter) OnDisplayItemSelected(_displayItems.GetSelectedItems()[0]);
                 if (k.Keycode == Key.Escape) _dropdown.Hide();
             }
         };
     }
+
+    public void ClearItems()
+    {
+        _items?.Clear();
+        if(_displayItems.IsAlive()) _displayItems?.Clear();
+    }
     
     public void Clear()
     {
-        _items?.Clear();
-        if(_list.IsAlive()) _list?.Clear();
-        if(_button.IsAlive()) _button.Text = "Select…";
+        ClearItems();
+        if(_button.IsAlive()) _button.Text = placeHolderText ?? "Select…";
     }
 
     public void AddItem(string id, string displayText = "")
@@ -113,32 +119,39 @@ public partial class OptionDropdown : Control
     
     public void Select(string id)
     {
-        selecting = id;
-        ApplyFilter(_searchFilter?.Text ?? "");
+        Deselect();
+        selectingIndex = _items.FindIndex(x => x.id.Equals(id, StringComparison.InvariantCultureIgnoreCase));
+        if (selectingIndex != -1)
+            _button.Text = _items[selectingIndex].displayText;
+        else
+        {
+            GD.PrintErr($"OptionDropdown: Item with id '{id}' not found.");
+            return;
+        }
+        ApplyFilter(_searchFilter.Text ?? "");
     }
 
     public void Deselect()
     {
-        _list.DeselectAll();
-        _button.Text = string.IsNullOrWhiteSpace(_placeholderText) ? "Select…" : _placeholderText;
-        selecting = string.Empty;
+        _displayItems.DeselectAll();
+        selectingIndex = -1;
+        _button.Text = placeHolderText;
     }
 
-    private void OnListItemSelected(long listIndex)
+    private void OnDisplayItemSelected(long index)
     {
-        var idx = (int)listIndex;
-        if (idx < 0 || idx >= _list.ItemCount)
+        var idx = (int)index;
+        if (idx < 0 || idx >= _displayItems.ItemCount)
         {
-            _button.Text = string.Empty;
-            selecting = string.Empty;
+            GD.PrintErr("OptionDropdown: Invalid list index selected.");
             return;
         }
         
-        string id = (string)_list.GetItemMetadata(idx);
-        string text = _list.GetItemText(idx);
-        _button.Text = text;
-        selecting = id;
-        OnSelected?.Invoke(id, text);
+        string id = (string)_displayItems.GetItemMetadata(idx);
+        string displayText = _displayItems.GetItemText(idx);
+        _button.Text = displayText;
+        OnSelected?.Invoke(id, displayText);
+        selectingIndex = _items.FindIndex(x => x.id.Equals(id, StringComparison.InvariantCultureIgnoreCase));
         _dropdown.Hide();
     }
 
@@ -153,29 +166,29 @@ public partial class OptionDropdown : Control
 
     private void ApplyFilter(string filter)
     {
-        if(!_list.IsAlive())
+        if(!_displayItems.IsAlive())
             return;
         
-        _list.Clear();
+        _displayItems.Clear();
         
-        int selectingIdx = -1;
         filter = (filter ?? "").ToLowerInvariant();
         foreach (var (id, displayText) in _items)
         {
             if (filter.Length == 0 || id.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
             {
-                int idx = _list.ItemCount;
-                _list.AddItem(displayText);
-                _list.SetItemMetadata(idx, id);
-                
-                if (!string.IsNullOrEmpty(selecting) && id.Equals(selecting, StringComparison.InvariantCultureIgnoreCase)) 
-                    selectingIdx = idx;
-            }
-        }
+                int idx = _displayItems.ItemCount;
+                _displayItems.AddItem(displayText);
+                _displayItems.SetItemMetadata(idx, id);
 
-        if (_list.ItemCount > 0 && selectingIdx != -1)
-        {
-            _list.Select(selectingIdx);
+                if (selectingIndex != -1)
+                {
+                    var selectedItem = _items[selectingIndex];
+                    if (id.Equals(selectedItem.id, StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        _displayItems.Select(idx);
+                    }
+                }
+            }
         }
     }
 }
