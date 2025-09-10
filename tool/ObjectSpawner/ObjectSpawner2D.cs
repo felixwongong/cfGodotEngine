@@ -3,15 +3,17 @@ using CatSweeper.Util;
 using cfEngine.Logging;
 using cfEngine.Pooling;
 using Godot;
-using Godot.Collections;
 
 namespace cfGodotEngine.Tool;
 
+/// <summary>
+/// 2D version of ObjectSpawner that requires a PackedScene with root node inherited from <see cref="SimpleRecyclable2D"/>
+/// </summary>
 [Tool]
 [GlobalClass]
 public partial class ObjectSpawner2D: Node2D
 {
-    private static System.Collections.Generic.Dictionary<PackedScene, ObjectPool<SimpleRecyclable2D>> _poolMap = new();
+    private static Dictionary<PackedScene, ObjectPool<SimpleRecyclable2D>> _poolMap = new();
     
     [Export]
     public PackedScene recyclable
@@ -27,14 +29,22 @@ public partial class ObjectSpawner2D: Node2D
     }
     private PackedScene _recyclable;
     
-    [Export] public bool spawnAsChild = true;
+    /// <summary>
+    /// If yes, <see cref="recyclable"/> will be spawned as a child of this node, otherwise it will be added to the scene root.
+    /// everytime the instantiated node is initialized by <see cref="SimpleRecyclable2D.Initialize()"/> method, the global position will be set the same as the spawner node.
+    /// </summary>
+    [Export] private bool _spawnAsChild = true;
 
-    public override void _ValidateProperty(Dictionary property)
+#if TOOLS
+    public override string[] _GetConfigurationWarnings()
     {
-        base._ValidateProperty(property);
-        property.EnsureSceneType<SimpleRecyclable2D>(nameof(recyclable), ref _recyclable);
-    }
+        if (_recyclable == null)
+            return ["recyclable is not set."];
 
+        return [];
+    }
+#endif
+    
     public void Spawn(int spawnCount)
     {
         var pool = GetPool();
@@ -48,10 +58,16 @@ public partial class ObjectSpawner2D: Node2D
         {
             var instance = GetPool().Get();
             instance.GetParent()?.RemoveChild(instance);
-            if (spawnAsChild)
+            if (_spawnAsChild)
+            {
                 AddChild(instance);
-            else 
+                instance.SetPosition(Vector2.Zero);
+            }
+            else
+            {
                 GetTree().Root.AddChild(instance);
+                instance.SetPosition(GetGlobalPosition());
+            }
         }
     }
     
@@ -68,7 +84,8 @@ public partial class ObjectSpawner2D: Node2D
         poolRoot.SetProcess(false);
         poolRoot.Visible = false;
         poolRoot.Name = $"{recyclable.ResourceName}_PoolRoot";
-        GetTree().Root.AddChild(poolRoot);
+        var treeRoot = GetTree().Root;
+        treeRoot.AddChild(poolRoot);
         
         pool = new ObjectPool<SimpleRecyclable2D>(
             () =>
@@ -84,7 +101,8 @@ public partial class ObjectSpawner2D: Node2D
                 x.Visible = true;
                 x.SetProcessMode(ProcessModeEnum.Inherit);
                 x.GetParent()?.RemoveChild(x);
-                GetTree().Root.AddChild(x);
+                treeRoot.AddChild(x);
+                x.Initialize();
             }, 
             x =>
             {
