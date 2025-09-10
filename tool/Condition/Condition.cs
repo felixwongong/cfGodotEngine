@@ -6,11 +6,15 @@ using Godot;
 
 namespace cfGodotEngine.Tool;
 
-public abstract partial class Condition : Resource
+[Tool]
+[GlobalClass]
+public partial class Condition : Resource
 {
     public bool isFulfilled { get; private set; }
     private Relay _OnFulfilled;
     public IRelay<Action> OnFulfilled => _OnFulfilled ??= new Relay(this);
+
+    public virtual void SetValue(Variant v) {}
     
     public void Fulfill()
     {
@@ -28,4 +32,14 @@ public abstract partial class Condition : Resource
     public virtual void GetConfigurationWarnings(IList<string> warnings)
     {
     }
+}
+
+public enum OpCode: byte
+{
+    Equal,
+    NotEqual,
+    Greater,
+    GreaterOrEqual,
+    Less,
+    LessOrEqual
 }
