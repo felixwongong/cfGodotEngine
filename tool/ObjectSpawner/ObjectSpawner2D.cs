@@ -110,7 +110,7 @@ public partial class ObjectSpawner2D: Node2D
                 x.SetProcessMode(ProcessModeEnum.Disabled);
                 x.GetParent()?.RemoveChild(x);
                 poolRoot.AddChild(x);
-            });
+            }, static x => x.QueueFree());
         
         _poolMap[recyclable] = pool;
         return pool;
