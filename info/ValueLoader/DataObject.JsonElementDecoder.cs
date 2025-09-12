@@ -15,11 +15,30 @@ namespace cfGodotEngine.Info
             if (raw is not JsonElement jsonElement)
                 return false;
 
-            var jsonValue = jsonElement.ToObject();
-            if (jsonValue == null)
+            object jsonValue;
+            if (jsonElement.ValueKind == JsonValueKind.Array)
             {
-                Log.LogError($"Failed to deserialize JsonElement, jsonRawValue: {jsonElement.GetRawText()}");
-                return false;
+                var count = jsonElement.GetArrayLength();
+                var array = new object[count];
+                for (int i = 0; i < count; i++)
+                {
+                    array[i] = jsonElement[i];
+                }
+
+                jsonValue = array;
+            }
+            else
+            {
+                var value = jsonElement.ToObject();
+                if (decodedType.IsArray)
+                {
+                    var array = new object[1];
+                    array[0] = value;
+                    jsonValue = array;
+                } else
+                {
+                    jsonValue = value;
+                }
             }
 
             return DataObject.Decoder.TryDecode(jsonValue, decodedType, out decoded);
