@@ -1,4 +1,5 @@
 using cfEngine.Pooling;
+using cfEngine.Rx;
 using Godot;
 
 namespace cfGodotEngine.Tool;
@@ -7,7 +8,9 @@ namespace cfGodotEngine.Tool;
 [GlobalClass]
 public partial class ConditionalEnable2D: Node2D
 {
-    [Export] private Condition _condition;
+    [Export] private ConditionNode _condition;
+
+    private Subscription _conditionUpdateSub;
 
 #if TOOLS
     public override string[] _GetConfigurationWarnings()
@@ -28,15 +31,12 @@ public partial class ConditionalEnable2D: Node2D
 
         Visible = false;
         SetProcessMode(ProcessModeEnum.Disabled);
+        _conditionUpdateSub = _condition.OnFulfilled.AddListener(OnConditionFulfilled);
     }
 
-    public void SetConditionValue(Variant value)
+    private void OnConditionFulfilled()
     {
-        _condition.SetValue(value);
-        if (_condition.isFulfilled)
-        {
-            Visible = true;
-            SetProcessMode(ProcessModeEnum.Inherit);
-        }
+        Visible = true;
+        SetProcessMode(ProcessModeEnum.Inherit);
     }
 }

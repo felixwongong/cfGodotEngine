@@ -8,14 +8,12 @@ namespace cfGodotEngine.Tool;
 
 [Tool]
 [GlobalClass]
-public partial class Condition : Resource
+public partial class ConditionNode : Node
 {
     public bool isFulfilled { get; private set; }
     private Relay _OnFulfilled;
     public IRelay<Action> OnFulfilled => _OnFulfilled ??= new Relay(this);
 
-    public virtual void SetValue(Variant v) {}
-    
     public void Fulfill()
     {
         if (isFulfilled)

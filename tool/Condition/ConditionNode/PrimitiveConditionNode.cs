@@ -6,14 +6,14 @@ namespace cfGodotEngine.Tool;
 
 [Tool]
 [GlobalClass]
-public partial class PrimitiveCondition: Condition
+public partial class PrimitiveConditionNode: ConditionNode
 {
     private const double TOLERANCE = 0.0001d;
     
     [Export] private OpCode _op;
     [Export] private double _value;
 
-    public override void SetValue(Variant v)
+    public void SetValue(Variant v)
     {
         double value;
         if (v.IsPrimitive())

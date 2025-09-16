@@ -10,7 +10,7 @@ namespace cfGodotEngine.Tool;
 [GlobalClass]
 public partial class ConditionalRecyclable2D: SimpleRecyclable2D
 {
-    [Export] private Condition _condition;
+    [Export] private ConditionNode _condition;
 
 #if TOOLS
     public override string[] _GetConfigurationWarnings()
