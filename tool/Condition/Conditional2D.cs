@@ -4,9 +4,11 @@ using Godot;
 
 namespace cfGodotEngine.Tool;
 
+#if TOOLS
 [Tool]
+#endif
 [GlobalClass]
-public partial class ConditionalEnable2D: Node2D
+public partial class Conditional2D: Node2D
 {
     [Export] private ConditionNode _condition;
 

@@ -14,6 +14,9 @@ public partial class ConditionNode : Node
     private Relay _OnFulfilled;
     public IRelay<Action> OnFulfilled => _OnFulfilled ??= new Relay(this);
 
+    [Signal]
+    public delegate void OnConditionUpdatedEventHandler(bool fulfilled);
+
     public void Fulfill()
     {
         if (isFulfilled)
@@ -24,6 +27,7 @@ public partial class ConditionNode : Node
         
         isFulfilled = true;
         _OnFulfilled?.Dispatch();
+        EmitSignalOnConditionUpdated(true);
     }
     
     [Conditional("TOOLS")]

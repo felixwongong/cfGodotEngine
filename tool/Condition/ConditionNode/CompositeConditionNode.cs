@@ -70,17 +70,21 @@ public partial class CompositeConditionNode: ConditionNode
 
     private void OnConditionFulfilled()
     {
+        bool fulfilled = false;
         switch (_opCode)
         {
             case OpCode.And:
-                if (_conditions.All(IsFulfilled))
-                    Fulfill();
+                fulfilled = _conditions.All(IsFulfilled);
                 break;
             case OpCode.Or:
-                if (_conditions.Any(IsFulfilled))
-                    Fulfill();
+                fulfilled = _conditions.Any(IsFulfilled);
                 break;
         }
+        
+        if(fulfilled)
+            Fulfill();
+        else
+            EmitSignalOnConditionUpdated(false);
 
         return;
 

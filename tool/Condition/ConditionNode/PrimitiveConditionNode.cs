@@ -34,8 +34,10 @@ public partial class PrimitiveConditionNode: ConditionNode
             OpCode.LessOrEqual => value <= _value,
             _ => throw new ArgumentOutOfRangeException()
         };
-
+        
         if (fulfilled)
             Fulfill();
+        else 
+            EmitSignalOnConditionUpdated(false);
     }
 }
