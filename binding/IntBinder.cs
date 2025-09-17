@@ -1,3 +1,4 @@
+using System.Globalization;
 using Godot;
 
 namespace cfGodotEngine.Binding;
@@ -7,6 +8,7 @@ namespace cfGodotEngine.Binding;
 public partial class IntBinder : SinglePropertyBinder<int>
 {
     [Signal] public delegate void OnValueChangedEventHandler(int value);
+    [Signal] public delegate void OnValueTextChangedEventHandler(string text);
     protected override bool ValidateValue(object value)
     {
         return base.ValidateValue(value) && value is int;
@@ -20,5 +22,7 @@ public partial class IntBinder : SinglePropertyBinder<int>
     protected override void DispatchSignal(int value)
     {
         EmitSignalOnValueChanged(value);
+        if(HasConnections(SignalName.OnValueTextChanged))
+            EmitSignalOnValueTextChanged(value.ToString(CultureInfo.InvariantCulture));
     }
 }
