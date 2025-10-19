@@ -38,13 +38,13 @@ namespace cfGodotEngine.GoogleDrive
             {
                 var googleFile = googleFiles[i];
                 var getFileSetting = getSetting(googleFile);
-                if (getFileSetting.TryGetError(out var error))
+                if (getFileSetting.HasError(out var error))
                 {
                     logger.LogException(error);
                     continue;
                 }
 
-                if (!getFileSetting.TryGetValue(out var optionalSetting) ||
+                if (!getFileSetting.HasResult(out var optionalSetting) ||
                     !optionalSetting.TryGetValue(out var setting))
                     continue;
 
@@ -95,13 +95,13 @@ namespace cfGodotEngine.GoogleDrive
             foreach (var googleFile in googleFiles)
             {
                 var getFileSetting = getSetting(googleFile);
-                if (getFileSetting.TryGetError(out var err))
+                if (getFileSetting.HasError(out var err))
                 {
                     logger.LogException(err);
                     continue;
                 }
 
-                if (!getFileSetting.TryGetValue(out var optionalSetting) ||
+                if (!getFileSetting.HasResult(out var optionalSetting) ||
                     !optionalSetting.TryGetValue(out var setting))
                     continue;
 

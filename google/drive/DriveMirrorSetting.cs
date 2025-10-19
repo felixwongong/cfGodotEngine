@@ -87,12 +87,12 @@ public partial class DriveMirrorSetting : Setting<DriveMirrorSetting> {
         foreach (var item in items) {
             if (string.IsNullOrEmpty(item.driveLink)) continue;
             var getUrlInfo = DriveUtil.ParseUrl(item.driveLink);
-            if (getUrlInfo.TryGetError(out var error)) {
+            if (getUrlInfo.HasError(out var error)) {
                 DriveUtil.godotLogger.LogException(error);
                 continue;
             }
 
-            if (!getUrlInfo.TryGetValue(out var urlInfo))
+            if (!getUrlInfo.HasResult(out var urlInfo))
                 continue;
 
             if (!_settingMap.TryAdd(urlInfo.fileId, item)) {

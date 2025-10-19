@@ -11,6 +11,8 @@ namespace cfGodotEngine.GoogleDrive
 {
     public struct SheetFileHandler : FileHandler
     {
+        private static JsonSerializer json = new JsonSerializer.Builder().Build();
+        
         public IDownloadProgress DownloadWithStatus(FilesResource filesResource, in FileHandler.DownloadRequest downloadRequest)
         {
             var fileId = downloadRequest.googleFileId;
@@ -20,7 +22,7 @@ namespace cfGodotEngine.GoogleDrive
 
             var sheetByte = sheetMemoryStream.ToArray();
             var sheetData = CofyXmlDocParser.ParseExcel(sheetByte);
-            var serialized = JsonSerializer.Instance.Serialize(sheetData);
+            var serialized = json.Serialize(sheetData);
             var fullPath = Path.Combine(downloadRequest.rootDirectoryInfo.FullName, $"{downloadRequest.localName}.json");
             File.WriteAllText(fullPath, serialized);
             return status;
@@ -35,7 +37,7 @@ namespace cfGodotEngine.GoogleDrive
 
             var sheetByte = sheetMemoryStream.ToArray();
             var sheetData = CofyXmlDocParser.ParseExcel(sheetByte);
-            var serialized = await JsonSerializer.Instance.SerializeAsync(sheetData);
+            var serialized = await json.SerializeAsync(sheetData);
             var fullPath = Path.Combine(downloadRequest.rootDirectoryInfo.FullName, $"{downloadRequest.localName}.json");
             await File.WriteAllTextAsync(fullPath, serialized);
             return status;

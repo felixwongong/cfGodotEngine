@@ -26,6 +26,8 @@ namespace cfGodotEngine.Info
 
         public ListPool<TInfo>.Handle Load(out List<TInfo> values)
         {
+            var json = new JsonSerializer.Builder().Build();
+            
             var files = _storage.GetFiles(SEARCH_PATTERN);
             if (files.Length <= 0)
             {
@@ -38,7 +40,7 @@ namespace cfGodotEngine.Info
             foreach (var file in files)
             {
                 var fileByte = _storage.LoadBytes(file);
-                var fileExcelData = JsonSerializer.Instance.DeserializeAs<DataContainer>(fileByte);
+                var fileExcelData = json.DeserializeAs<DataContainer>(fileByte);
                 excelData.AddRange(fileExcelData);
             }
 
