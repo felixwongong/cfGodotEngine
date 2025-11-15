@@ -12,7 +12,7 @@ using Google.Apis.Drive.v3;
 using Google.Apis.Drive.v3.Data;
 using Google.Apis.Services;
 using GoogleFile = Google.Apis.Drive.v3.Data.File;
-using ILogger = cfEngine.Logging.ILogger;
+using ILogger = cfEngine.ILogger;
 
 namespace cfGodotEngine.GoogleDrive;
 

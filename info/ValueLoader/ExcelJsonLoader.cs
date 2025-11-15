@@ -4,7 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using cfEngine.Info;
 using cfEngine.IO;
-using cfEngine.Logging;
+using cfEngine;
 using cfEngine.Pooling;
 using CofyDev.Xml.Doc;
 using JsonSerializer = cfEngine.Serialize.JsonSerializer;

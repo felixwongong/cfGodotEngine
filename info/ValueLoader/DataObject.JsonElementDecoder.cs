@@ -1,6 +1,6 @@
 using System;
 using System.Text.Json;
-using cfEngine.Logging;
+using cfEngine;
 using cfEngine.Util;
 using CofyDev.Xml.Doc;
 

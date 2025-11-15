@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using cfEngine.Logging;
+using cfEngine;
 using cfEngine.Util;
 using Google.Apis.Download;
 using Google.Apis.Drive.v3;

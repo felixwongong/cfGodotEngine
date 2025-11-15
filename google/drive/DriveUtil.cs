@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using cfEngine;
 using cfGodotEngine.Core;
 using cfGodotEngine.Util;
-using ILogger = cfEngine.Logging.ILogger;
+using ILogger = cfEngine.ILogger;
 
 namespace cfGodotEngine.GoogleDrive;
 

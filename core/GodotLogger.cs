@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics;
-using cfEngine.Logging;
+using cfEngine;
 using Godot;
 
 namespace cfGodotEngine.Core;
