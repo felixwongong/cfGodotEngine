@@ -4,6 +4,7 @@ using System;
 using cfGodotEngine.Util;
 using Godot;
 using Godot.Collections;
+using FileAccess = Godot.FileAccess;
 
 namespace cfGodotEngine.GoogleDrive;
 

@@ -17,11 +17,11 @@ using ILogger = cfEngine.ILogger;
 namespace cfGodotEngine.GoogleDrive;
 
 public struct RefreshStatus {
-    public readonly File file;
+    public readonly GoogleFile file;
     public readonly IDownloadProgress status;
     public readonly float progress;
 
-    public RefreshStatus(File file, IDownloadProgress status, float progress) {
+    public RefreshStatus(GoogleFile file, IDownloadProgress status, float progress) {
         this.file = file;
         this.status = status;
         this.progress = progress;
@@ -144,7 +144,7 @@ public partial class DriveMirror {
         logger.LogInfo("[GDriveMirror.Refresh] refresh files succeed");
     }
 
-    private Res<Optional<SettingItem>, Exception> GetSetting(File file) {
+    private Res<Optional<SettingItem>, Exception> GetSetting(GoogleFile file) {
         var filesSetting = DriveMirrorSetting.GetSetting();
         if (filesSetting == null || filesSetting.settingMap == null)
             return Res.Err<Optional<SettingItem>>(new Exception("GDriveMirrorSetting is not initialized."));

@@ -10,7 +10,7 @@ namespace cfGodotEngine.Tool;
 [GlobalClass]
 public partial class Stateful2D: Node2D
 {
-    [Export] private Dictionary<string, Node2D> _stateNodes = new();
+    [Export] private Godot.Collections.Dictionary<string, Node2D> _stateNodes = new();
 
 #if TOOLS
     public override string[] _GetConfigurationWarnings()

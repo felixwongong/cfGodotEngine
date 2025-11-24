@@ -20,7 +20,7 @@ namespace cfGodotEngine.GoogleDrive
     public struct ChangeInfo
     {
         public ChangeType type;
-        public Optional<File> File;
+        public Optional<GoogleFile> File;
     }
     
     public interface IChangeHandler
@@ -28,7 +28,7 @@ namespace cfGodotEngine.GoogleDrive
         public string LoadChanges(DriveService driveService, string startPageToken);
         public Task<string> LoadChangesAsync(DriveService driveService, string startPageToken);
         public bool IsFileChanged(GoogleFile googleFile);
-        public bool TryGetFileChange(File googleFile, out ChangeInfo? changeInfo);
+        public bool TryGetFileChange(GoogleFile googleFile, out ChangeInfo? changeInfo);
     }
     
     public class ChangeHandler: IChangeHandler
@@ -115,7 +115,7 @@ namespace cfGodotEngine.GoogleDrive
             return TryGetFileChange(googleFile, out _);
         }
 
-        public bool TryGetFileChange(File googleFile, out ChangeInfo? changeInfo)
+        public bool TryGetFileChange(GoogleFile googleFile, out ChangeInfo? changeInfo)
         {
             changeInfo = null;
             if (!isInitialized)
@@ -128,7 +128,7 @@ namespace cfGodotEngine.GoogleDrive
                 changeInfo = new ChangeInfo
                 {
                     type = ChangeType.Modified,
-                    File = Optional<File>.None()
+                    File = Optional<GoogleFile>.None()
                 };
                 return true;
             }

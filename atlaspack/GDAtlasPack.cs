@@ -14,7 +14,7 @@ public partial class GDAtlasPack: Resource
         var atlas = new GDAtlas();
         atlas.atlasId = atlasId;
         atlas.dimension = new Vector2(context.bounds.width, context.bounds.height);
-        var imageMap = new Dictionary<string, AtlasTexture>(); 
+        var imageMap = new Godot.Collections.Dictionary<string, AtlasTexture>(); 
         foreach (var (imageName, rect) in context.imageRectMap)
         {
             var texture = new AtlasTexture();
