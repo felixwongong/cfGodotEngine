@@ -1,10 +1,11 @@
+using System;
 using Godot;
 
 namespace cfGodotEngine.UI;
 
 public partial class RandomSprite2D: Sprite2D
 {
-    private static readonly RandomNumberGenerator rng = new();
+    private static readonly Random rng = new();
     
     [Export] private Texture2DList _textures;
     
@@ -21,13 +22,13 @@ public partial class RandomSprite2D: Sprite2D
             return;
         }
 
-        var index = rng.RandiRange(0, _textures.textures.Count - 1);
+        var index = rng.Next(0, _textures.textures.Count);
         Texture = _textures.textures[index];
     }
 
     public void SelectNext()
     {
-        var index = rng.RandiRange(0, _textures.textures.Count - 1);
+        var index = rng.Next(0, _textures.textures.Count);
         Texture = _textures.textures[index];
     }
 }

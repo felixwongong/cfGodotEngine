@@ -1,3 +1,4 @@
+using System;
 using cfGodotEngine.Binding;
 using Godot;
 using Godot.Collections;
@@ -8,7 +9,7 @@ namespace cfGodotEngine.Tool;
 [GlobalClass]
 public partial class RandomNodeToggler2D: Node2D
 {
-    private static readonly RandomNumberGenerator rng = new();
+    private static readonly Random rng = new();
 
     [Export] private Array<RandomNodeItem> _items = new();
     
@@ -85,7 +86,7 @@ public partial class RandomNodeToggler2D: Node2D
         ActiveNode?.SetProcessMode(ProcessModeEnum.Disabled);
 
         int acc = 0;
-        var roll = rng.RandiRange(1, _totalWeight);
+        var roll = rng.Next(1, _totalWeight + 1);
         foreach (var item in _items)
         {
             acc += item.weight;
