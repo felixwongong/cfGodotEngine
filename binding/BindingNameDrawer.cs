@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using cfGodotEngine.UI;
 using cfGodotEngine.Util;
@@ -79,7 +80,19 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
         
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
-            foreach (var type in assembly.GetTypes())
+            Type[] types;
+            try
+            {
+                types = assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                // Some types couldn't be loaded due to missing dependencies
+                // Use only the types that loaded successfully
+                types = ex.Types.Where(t => t != null).ToArray();
+            }
+            
+            foreach (var type in types)
             {
                 if (typeof(IBindingSource).IsAssignableFrom(type) && type != typeof(IBindingSource))
                 {
