@@ -7,6 +7,9 @@ namespace cfGodotEngine.Binding;
 public partial class StringBinder: SinglePropertyBinder<string>
 {
     [Signal] public delegate void OnValueChangedEventHandler(string value);
+    
+    protected override string GetSignalName() => SignalName.OnValueChanged;
+    
     protected override string ParseValue(object propertyValue)
     {
         if (!ValidateValue(propertyValue))
@@ -16,10 +19,5 @@ public partial class StringBinder: SinglePropertyBinder<string>
         }
 
         return propertyValue.ToString();
-    }
-
-    protected override void DispatchSignal(string value)
-    {
-        EmitSignalOnValueChanged(value);
     }
 }
