@@ -12,7 +12,7 @@ public partial class ConditionNode : Node
 {
     public bool isFulfilled { get; private set; }
     private Relay _OnFulfilled;
-    public IRelay<Action> OnFulfilled => _OnFulfilled ??= new Relay(this);
+    public IRelay OnFulfilled => _OnFulfilled ??= new Relay(this);
 
     [Signal]
     public delegate void OnConditionUpdatedEventHandler(bool fulfilled);
