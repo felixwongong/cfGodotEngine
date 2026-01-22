@@ -18,21 +18,14 @@ public abstract partial class SinglePropertyBinder<T> : Binder
     [Export] private BindingName _bindingName;
     
     private ISignalDispatcher _signalDispatcher;
-    
-    public override void _Ready()
-    {
-        base._Ready();
-        
-        // Initialize Godot signal dispatcher
-        _signalDispatcher = CreateSignalDispatcher();
-    }
+    public ISignalDispatcher SignalDispatcher => _signalDispatcher ??= CreateSignalDispatcher();
     
     /// <summary>
     /// Creates the signal dispatcher. Override to provide custom implementation (e.g., for testing).
     /// </summary>
     protected virtual ISignalDispatcher CreateSignalDispatcher()
     {
-        return new GodotSignalDispatcher(this, GetSignalName());
+        return new GodotSignalDispatcher(this);
     }
     
     /// <summary>
@@ -48,7 +41,7 @@ public abstract partial class SinglePropertyBinder<T> : Binder
             return;
         }
 
-        if (bindingMap.Get(_bindingName.propertyName, out object propertyValue) && !ValidateValue(propertyValue))
+        if (bindingMap.Get<T>(_bindingName.propertyName, out var propertyValue) && !ValidateValue(propertyValue))
         {
             GD.PrintErr("SinglePropertyBinder: Property value is null or invalid. Cannot parse value.");
             return;
@@ -58,7 +51,7 @@ public abstract partial class SinglePropertyBinder<T> : Binder
         OnPropertyChanged(parsed);
         
         // Use abstracted signal dispatcher instead of direct Godot signal
-        _signalDispatcher?.Dispatch(GetSignalName(), parsed);
+        SignalDispatcher?.Dispatch(GetSignalName(), parsed);
     }
     
     protected override void OnBindingValueChanged(string propertyName)
@@ -93,7 +86,7 @@ public abstract partial class SinglePropertyBinder<T> : Binder
         OnPropertyChanged(parsed);
         
         // Use abstracted signal dispatcher instead of direct Godot signal
-        _signalDispatcher?.Dispatch(GetSignalName(), parsed);
+        SignalDispatcher?.Dispatch(GetSignalName(), parsed);
     }
     
     protected virtual bool ValidateValue(object value)

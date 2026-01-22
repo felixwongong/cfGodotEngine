@@ -9,19 +9,17 @@ namespace cfGodotEngine.Binding;
 public class GodotSignalDispatcher : ISignalDispatcher
 {
     private readonly Node _node;
-    private readonly string _signalName;
 
-    public GodotSignalDispatcher(Node node, string signalName)
+    public GodotSignalDispatcher(Node node)
     {
         _node = node;
-        _signalName = signalName;
     }
 
     public void Dispatch<T>(string signalName, T value)
     {
-        if (_node.HasSignal(_signalName))
+        if (_node.HasSignal(signalName))
         {
-            _node.EmitSignal(_signalName, Variant.From(value));
+            _node.EmitSignal(signalName, Variant.From(value));
         }
     }
 }
