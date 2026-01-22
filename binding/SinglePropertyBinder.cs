@@ -1,3 +1,4 @@
+using cfEngine;
 using cfEngine.DataStructure;
 using cfGodotEngine.Util;
 using Godot;
@@ -47,8 +48,7 @@ public abstract partial class SinglePropertyBinder<T> : Binder
             return;
         }
 
-        bindingMap.Get(_bindingName.propertyName, out object propertyValue);
-        if (!ValidateValue(propertyValue))
+        if (bindingMap.Get(_bindingName.propertyName, out object propertyValue) && !ValidateValue(propertyValue))
         {
             GD.PrintErr("SinglePropertyBinder: Property value is null or invalid. Cannot parse value.");
             return;
@@ -61,10 +61,27 @@ public abstract partial class SinglePropertyBinder<T> : Binder
         _signalDispatcher?.Dispatch(GetSignalName(), parsed);
     }
     
-    protected override void OnBindingValueChanged(string propertyName, object propertyValue)
+    protected override void OnBindingValueChanged(string propertyName)
     {
         if(!propertyName.Equals(_bindingName?.propertyName))
             return;
+
+        // Retrieve value from binding source
+        var bindingSource = GetParent();
+        while (bindingSource != null && bindingSource is not IBindingSource)
+            bindingSource = bindingSource.GetParent();
+        
+        if (bindingSource is not IBindingSource source)
+        {
+            GD.PrintErr("SinglePropertyBinder: Could not find IBindingSource.");
+            return;
+        }
+
+        if (!source.GetBindings.Get<T>(propertyName, out var propertyValue))
+        {
+            GD.PrintErr("SinglePropertyBinder: Could not retrieve property value.");
+            return;
+        }
 
         if (!ValidateValue(propertyValue))
         {

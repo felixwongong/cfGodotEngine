@@ -82,8 +82,8 @@ public partial class RandomNodeToggler2D: Node2D
     {
         if (_items.Count <= 0)
             return;
-        
-        ActiveNode?.SetProcessMode(ProcessModeEnum.Disabled);
+
+        _activeNode?.SetProcessMode(ProcessModeEnum.Disabled);
 
         int acc = 0;
         var roll = rng.Next(1, _totalWeight + 1);
@@ -95,7 +95,7 @@ public partial class RandomNodeToggler2D: Node2D
                 var newActive = GetNode<Node2D>(item.Node);
                 newActive.SetProcessMode(ProcessModeEnum.Inherit);
                 newActive.Visible = true;
-                ActiveNode = newActive;
+                SetActiveNode(newActive);
                 break;
             }
         }

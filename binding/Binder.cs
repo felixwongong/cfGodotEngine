@@ -50,5 +50,5 @@ public abstract partial class Binder: Node
     }
 
     protected abstract void OnBindingRestored(IPropertyMap bindingMap);
-    protected abstract void OnBindingValueChanged(string propertyName, object propertyValue);
+    protected abstract void OnBindingValueChanged(string propertyName);
 }
