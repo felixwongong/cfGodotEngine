@@ -10,7 +10,7 @@ public enum BindingAccessibility
     Internal
 }
 
-[AttributeUsage(AttributeTargets.Field, AllowMultiple = true)]
+[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = true)]
 public class PropertyBindingAttribute: Attribute
 {
     public string name;
