@@ -81,9 +81,10 @@ namespace cfGodotEngine.Info
             return byteLoadResult.ContinueWith(task =>
             {
                 var excelData = new DataContainer();
+                var json = new JsonSerializer.Builder().Build();
                 foreach (var bytes in task.Result)
                 {
-                    var fileExcelData = CofyXmlDocParser.ParseExcel(bytes);
+                    var fileExcelData = json.DeserializeAs<DataContainer>(bytes);
                     excelData.AddRange(fileExcelData);
                 }
 
