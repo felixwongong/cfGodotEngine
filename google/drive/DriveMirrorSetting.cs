@@ -1,6 +1,5 @@
 ﻿#if CF_GOOGLE_DRIVE
 
-using System;
 using cfGodotEngine.Util;
 using Godot;
 using Godot.Collections;
@@ -36,7 +35,6 @@ public partial class DriveMirrorSetting : Setting<DriveMirrorSetting> {
     
     [Export] public string changeChecksumToken = string.Empty;
     [Export] public Array<SettingItem> items;
-    [Export] public bool refreshOnEnterPlayMode;
 
     private System.Collections.Generic.Dictionary<string, SettingItem> _settingMap = new();
     public System.Collections.Generic.Dictionary<string, SettingItem> settingMap {
@@ -45,40 +43,6 @@ public partial class DriveMirrorSetting : Setting<DriveMirrorSetting> {
             UpdateSettingMap();
             return _settingMap;
         }
-    }
-
-// #if GODOT_MACOS
-    [ExportToolButton("Refresh")]
-    public Callable RefreshButton => Callable.From(Refresh);
-// #endif
-    public void Refresh() {
-        DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.Refresh] refresh started");
-        try
-        {
-            DriveMirror.instance.Refresh();
-        }
-        catch (Exception e)
-        {
-            DriveUtil.godotLogger.LogException(e);
-            return;
-        }
-        DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.Refresh] refresh ended");
-    }
-
-// #if GODOT_MACOS
-    [ExportToolButton("Force Refresh All")]
-    public Callable ForceRefreshAllButton => Callable.From(ForceRefreshAll);
-// #endif
-    public void ForceRefreshAll() {
-        DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.ClearAllAndRefresh] clear all and refresh started");
-        DriveMirror.instance.ClearAllAndRefreshWithProgressBar().ContinueWith(task => {
-            if (task.IsFaulted) {
-                DriveUtil.godotLogger.LogError($"[GDriveMirrorSetting.ClearAllAndRefresh] clear all and refresh failed: {task.Exception}");
-            }
-            else {
-                DriveUtil.godotLogger.LogInfo("[GDriveMirrorSetting.ClearAllAndRefresh] clear all and refresh ended");
-            }
-        });
     }
 
     private void UpdateSettingMap() 
