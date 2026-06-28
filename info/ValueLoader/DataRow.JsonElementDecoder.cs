@@ -6,7 +6,7 @@ using CofyDev.Xml.Doc;
 
 namespace cfGodotEngine.Info
 {
-    public class JsonElementDecoder: DataObject.IValueDecoder
+    public class JsonElementDecoder: DataRow.IValueDecoder
     {
         public Type valueType => typeof(System.Text.Json.JsonElement);
         public bool TryDecode(object raw, Type decodedType, out object decoded)
@@ -41,7 +41,7 @@ namespace cfGodotEngine.Info
                 }
             }
 
-            return DataObject.Decoder.TryDecode(jsonValue, decodedType, out decoded);
+            return DataRow.Decoder.TryDecode(jsonValue, decodedType, out decoded);
         }
     }
 }

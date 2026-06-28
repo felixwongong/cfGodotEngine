@@ -14,14 +14,14 @@ namespace cfGodotEngine.Info
     public class ExcelJsonLoader<TInfo> : IValueLoader<TInfo>
     {
         private readonly IStorage _storage;
-        private readonly DataObjectEncoder _encoder;
+        private readonly DataRowMapper _mapper;
         
         private const string SEARCH_PATTERN = "*.json";
         
-        public ExcelJsonLoader(IStorage storage, DataObjectEncoder encoder)
+        public ExcelJsonLoader(IStorage storage, DataRowMapper mapper)
         {
             _storage = storage;
-            _encoder = encoder;
+            _mapper = mapper;
         }
 
         public ListPool<TInfo>.Handle Load(out List<TInfo> values)
@@ -36,24 +36,24 @@ namespace cfGodotEngine.Info
                 return ListPool<TInfo>.Handle.Empty;
             }
 
-            var excelData = new DataContainer();
+            var excelData = new DataTable();
             foreach (var file in files)
             {
                 var fileByte = _storage.LoadBytes(file);
-                var fileExcelData = json.DeserializeAs<DataContainer>(fileByte);
+                var fileExcelData = json.DeserializeAs<DataTable>(fileByte);
                 excelData.AddRange(fileExcelData);
             }
 
-            if (_encoder == null)
+            if (_mapper == null)
             {
-                throw new ArgumentNullException(nameof(_encoder), "encoder unset");
+                throw new ArgumentNullException(nameof(_mapper), "mapper unset");
             }
 
             var handle = ListPool<TInfo>.Default.Get(out values);
             values.EnsureCapacity(excelData.Count);
-            foreach (var dataObject in excelData)
+            foreach (var dataRow in excelData)
             {
-                var decoded = _encoder.DecodeAs<TInfo>(dataObject, DataObjectExtension.SetDecodePropertyValue);
+                var decoded = _mapper.DecodeAs<TInfo>(dataRow, DataRowExtension.SetPropertyValue);
                 values.Add(decoded);
             }
             
@@ -80,23 +80,23 @@ namespace cfGodotEngine.Info
             var byteLoadResult = Task.WhenAll(byteLoadTasks);
             return byteLoadResult.ContinueWith(task =>
             {
-                var excelData = new DataContainer();
+                var excelData = new DataTable();
                 var json = new JsonSerializer.Builder().Build();
                 foreach (var bytes in task.Result)
                 {
-                    var fileExcelData = json.DeserializeAs<DataContainer>(bytes);
+                    var fileExcelData = json.DeserializeAs<DataTable>(bytes);
                     excelData.AddRange(fileExcelData);
                 }
 
-                if (_encoder == null)
+                if (_mapper == null)
                 {
-                    throw new ArgumentNullException(nameof(_encoder), "encoder unset");
+                    throw new ArgumentNullException(nameof(_mapper), "mapper unset");
                 }
 
                 var values = new List<TInfo>(excelData.Count);
-                foreach (var dataObject in excelData)
+                foreach (var dataRow in excelData)
                 {
-                    var decoded = _encoder.DecodeAs<TInfo>(dataObject, DataObjectExtension.SetDecodePropertyValue);
+                    var decoded = _mapper.DecodeAs<TInfo>(dataRow, DataRowExtension.SetPropertyValue);
                     values.Add(decoded);
                 }
 
