@@ -72,7 +72,15 @@ public sealed class GoogleSheetValuesHttpClient : IGoogleSheetValuesClient, IDis
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Google Sheets values request failed ({(int)response.StatusCode}): {content}");
+        {
+            var message = $"Google Sheets values request failed ({(int)response.StatusCode}): {content}";
+            if (content.Contains("Unable to parse range", StringComparison.OrdinalIgnoreCase))
+            {
+                message += $"\nHint: the sheet/tab name in the range '{range}' may not exist or may be misspelled. " +
+                           "Open the spreadsheet and verify the exact tab name, or omit sheetName to use the first sheet.";
+            }
+            throw new HttpRequestException(message);
+        }
 
         return ParseValues(content);
     }
