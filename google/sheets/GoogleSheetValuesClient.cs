@@ -43,6 +43,16 @@ public sealed class GoogleSheetValuesHttpClient : IGoogleSheetValuesClient, IDis
         return new GoogleSheetValuesHttpClient(credential);
     }
 
+    public static GoogleSheetValuesHttpClient CreateFromFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Credential file path cannot be empty.", nameof(path));
+
+        var credential = GoogleCredential.FromFile(path)
+            .CreateScoped(SheetsReadonlyScope);
+        return new GoogleSheetValuesHttpClient(credential);
+    }
+
     public async Task<IReadOnlyList<IReadOnlyList<string>>> GetValuesAsync(
         string spreadsheetId,
         string range,
