@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using cfEngine;
 using cfEngine.DataStructure;
 using cfGodotEngine.Util;
@@ -59,12 +62,9 @@ public abstract partial class SinglePropertyBinder<T> : Binder
         if(!propertyName.Equals(_bindingName?.propertyName))
             return;
 
-        // Retrieve value from binding source
-        var bindingSource = GetParent();
-        while (bindingSource != null && bindingSource is not IBindingSource)
-            bindingSource = bindingSource.GetParent();
-        
-        if (bindingSource is not IBindingSource source)
+        // Retrieve value from cached binding source
+        var source = BindingSource;
+        if (source == null)
         {
             GD.PrintErr("SinglePropertyBinder: Could not find IBindingSource.");
             return;
@@ -98,5 +98,34 @@ public abstract partial class SinglePropertyBinder<T> : Binder
 
     protected virtual void OnPropertyChanged(T value)
     {
+    }
+
+    /// <summary>
+    /// Validates that the configured binding source type exists and exposes the configured property key.
+    /// </summary>
+    public override string ValidateBinding()
+    {
+        if (_bindingName == null)
+            return "BindingName is not assigned";
+
+        if (string.IsNullOrWhiteSpace(_bindingName.typeName))
+            return string.Empty; // not configured yet, don't spam
+
+        if (string.IsNullOrWhiteSpace(_bindingName.propertyName))
+            return "Binding property name is empty";
+
+        var sourceType = System.Type.GetType(_bindingName.typeName);
+        if (sourceType == null)
+            return $"Source type '{_bindingName.typeName}' could not be loaded";
+
+        var method = sourceType.GetMethod("GetBindingKeys", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+        if (method == null)
+            return $"Source type '{sourceType.Name}' does not expose GetBindingKeys()";
+
+        var keys = method.Invoke(null, null) as IReadOnlyList<string>;
+        if (keys == null || !keys.Contains(_bindingName.propertyName))
+            return $"Property '{_bindingName.propertyName}' is not a valid binding key on '{sourceType.Name}'";
+
+        return string.Empty;
     }
 }

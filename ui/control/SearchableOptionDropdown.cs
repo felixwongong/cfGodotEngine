@@ -108,6 +108,11 @@ public partial class SearchableOptionDropdown : Control
         _items.Add((id, displayText));
     }
 
+    public bool HasItem(string id)
+    {
+        return _items.Exists(x => x.id.Equals(id, StringComparison.InvariantCultureIgnoreCase));
+    }
+
     public void SetItems(IEnumerable<(string id, string displayText)> items)
     {
         Clear();

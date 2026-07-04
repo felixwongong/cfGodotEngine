@@ -103,8 +103,21 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
 
         var bindingName = GetPropertyValue().As<BindingName>();
         if(bindingName != null && !string.IsNullOrWhiteSpace(bindingName.typeName)) {
+            EnsureSourceTypeAdded(bindingName.typeName);
             sourceTypeOption.Select(bindingName.typeName);
         } 
+    }
+
+    private void EnsureSourceTypeAdded(string typeName)
+    {
+        if (sourceTypeOption.HasItem(typeName))
+            return;
+
+        var type = Type.GetType(typeName);
+        if (type == null)
+            return;
+
+        sourceTypeOption.AddItem(type.AssemblyQualifiedName, type.Name);
     }
 
     protected override void OnPropertyUpdated(Variant propertyValue)
@@ -121,6 +134,7 @@ public partial class BindingNameDrawer : CustomPropertyDrawer
 
         if (!string.IsNullOrWhiteSpace(bindingName.typeName))
         {
+            EnsureSourceTypeAdded(bindingName.typeName);
             sourceTypeOption.Select(bindingName.typeName);
             nameOption.Clear();
             var type = Type.GetType($"{bindingName.typeName}");
