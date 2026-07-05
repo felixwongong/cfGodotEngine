@@ -15,6 +15,10 @@ public interface IGoogleSheetValuesClient
         string spreadsheetId,
         string range,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<string>> GetSheetNamesAsync(
+        string spreadsheetId,
+        CancellationToken cancellationToken);
 }
 
 public sealed class GoogleSheetValuesHttpClient : IGoogleSheetValuesClient, IDisposable
@@ -85,6 +89,30 @@ public sealed class GoogleSheetValuesHttpClient : IGoogleSheetValuesClient, IDis
         return ParseValues(content);
     }
 
+    public async Task<IReadOnlyList<string>> GetSheetNamesAsync(
+        string spreadsheetId,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        if (_credential.UnderlyingCredential is not ITokenAccess tokenAccess)
+            throw new InvalidOperationException("Google credential cannot provide access tokens for Sheets values import.");
+
+        var token = await tokenAccess.GetAccessTokenForRequestAsync(null, cancellationToken)
+            .ConfigureAwait(false);
+        var encodedSpreadsheetId = Uri.EscapeDataString(spreadsheetId);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            new Uri($"https://sheets.googleapis.com/v4/spreadsheets/{encodedSpreadsheetId}?fields=sheets.properties.title"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Google Sheets metadata request failed ({(int)response.StatusCode}): {content}");
+
+        return ParseSheetNames(content);
+    }
+
     public void Dispose()
     {
         if (_isDisposed)
@@ -130,6 +158,26 @@ public sealed class GoogleSheetValuesHttpClient : IGoogleSheetValuesClient, IDis
         }
 
         return rows;
+    }
+
+    private static IReadOnlyList<string> ParseSheetNames(string content)
+    {
+        using var document = JsonDocument.Parse(content);
+        var names = new List<string>();
+        if (!document.RootElement.TryGetProperty("sheets", out var sheetsElement) ||
+            sheetsElement.ValueKind != JsonValueKind.Array)
+            return names;
+
+        foreach (var sheet in sheetsElement.EnumerateArray())
+        {
+            if (sheet.TryGetProperty("properties", out var properties) &&
+                properties.TryGetProperty("title", out var title))
+            {
+                names.Add(title.GetString() ?? string.Empty);
+            }
+        }
+
+        return names;
     }
 
     private void ThrowIfDisposed()
