@@ -8,7 +8,7 @@ using Godot;
 namespace cfGodotEngine.Binding;
 
 /// <summary>
-/// Binds an <see cref="IEnumerable"/> source key to a container, instantiating
+/// Binds an <see cref="System.Collections.IEnumerable"/> source key to a container, instantiating
 /// one <see cref="_itemPrefab"/> per element and passing the element to a setter
 /// method on each instantiated item.
 /// </summary>
