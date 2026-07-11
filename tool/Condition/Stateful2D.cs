@@ -32,18 +32,23 @@ public partial class Stateful2D: Node2D
     }
 #endif
     
-    public override void _Ready()
+    public override void _EnterTree()
     {
+        base._EnterTree();
         if (Engine.IsEditorHint())
             return;
 
+        // Set up default (all-hidden) state before any child Binding runs
+        // _Ready. _EnterTree fires parent-first, so this runs before the
+        // Binding child's _Ready which then applies the correct state.
         foreach (var node in _stateNodes.Values)
         {
+            if (node == null) continue;
             node.Visible = false;
             node.SetProcessMode(ProcessModeEnum.Disabled);
         }
     }
-    
+
     public void SetValue(Variant newValue)
     {
         var newKey = newValue.AsString();
