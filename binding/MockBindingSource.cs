@@ -1,94 +1,78 @@
 using System;
-using cfEngine.DataStructure;
+using System.Collections.Generic;
+using cfEngine.Rx;
 using Godot;
 
-namespace cfGodotEngine.Binding;
-
-/// <summary>
-/// Provides sample binding values for editor preview.
-/// At runtime binders skip mock sources and resolve the real source instead.
-/// </summary>
-[Tool]
-[GlobalClass]
-public partial class MockBindingSource : Node, IBindingSource
+namespace cfGodotEngine.Binding
 {
-    [Export]
-    public Godot.Collections.Dictionary sampleValues = new();
-
-    private MockPropertyMap _propertyMap;
-
-    public IPropertyMap GetBindings
+    /// <summary>
+    /// Provides sample binding values for editor preview.
+    /// At runtime binding nodes skip mock sources and resolve the real source instead.
+    /// </summary>
+    [Tool]
+    [GlobalClass]
+    public partial class MockBindingSource : Node, IBindingSource
     {
-        get
+        [Export]
+        public Godot.Collections.Dictionary sampleValues = new();
+
+        private MockPropertyMap _propertyMap;
+
+        public IPropertyMap GetBindings
         {
-            if (_propertyMap == null)
-                _propertyMap = new MockPropertyMap(this);
-            return _propertyMap;
-        }
-    }
-
-    public IDisposable BeginUpdate() => new EmptyUpdateScope();
-
-    private class EmptyUpdateScope : IDisposable
-    {
-        public void Dispose()
-        {
-        }
-    }
-
-    private class MockPropertyMap : IPropertyMap
-    {
-        private readonly MockBindingSource _owner;
-
-        public MockPropertyMap(MockBindingSource owner)
-        {
-            _owner = owner;
-        }
-
-        public bool Get<T>(string key, out T value)
-        {
-            value = default;
-            if (!_owner.sampleValues.TryGetValue((StringName)key, out var variant))
-                return false;
-
-            object boxed;
-            var targetType = typeof(T);
-            if (targetType == typeof(int))
-                boxed = variant.AsInt32();
-            else if (targetType == typeof(float))
-                boxed = variant.AsSingle();
-            else if (targetType == typeof(double))
-                boxed = variant.AsDouble();
-            else if (targetType == typeof(bool))
-                boxed = variant.AsBool();
-            else if (targetType == typeof(string))
-                boxed = variant.AsString();
-            else if (targetType == typeof(Color))
-                boxed = variant.AsColor();
-            else if (targetType == typeof(Vector2))
-                boxed = variant.AsVector2();
-            else if (targetType == typeof(Texture2D))
-                boxed = variant.As<Texture2D>();
-            else if (targetType == typeof(Resource))
-                boxed = variant.As<Resource>();
-            else
-                boxed = variant;
-
-            if (boxed is T tValue)
+            get
             {
-                value = tValue;
-                return true;
+                if (_propertyMap == null)
+                    _propertyMap = new MockPropertyMap(this);
+                return _propertyMap;
+            }
+        }
+
+        public IDisposable BeginUpdate() => new EmptyUpdateScope();
+
+        private class EmptyUpdateScope : IDisposable
+        {
+            public void Dispose() { }
+        }
+
+        private class MockPropertyMap : IPropertyMap
+        {
+            private readonly MockBindingSource _owner;
+            private List<string> _keys;
+
+            public MockPropertyMap(MockBindingSource owner)
+            {
+                _owner = owner;
+                _keys = new List<string>();
+                foreach (var key in _owner.sampleValues.Keys)
+                    _keys.Add((string)key);
             }
 
-            return false;
-        }
+            public bool GetVariant(string key, out Variant value)
+            {
+                if (_owner.sampleValues.TryGetValue((StringName)key, out var variant))
+                {
+                    value = variant;
+                    return true;
+                }
+                value = default;
+                return false;
+            }
 
-        public void RegisterPropertyChange(Action<string> callback)
-        {
-        }
+            public bool GetObject(string key, out object value)
+            {
+                if (_owner.sampleValues.TryGetValue((StringName)key, out var variant))
+                {
+                    value = variant.Obj;
+                    return true;
+                }
+                value = null;
+                return false;
+            }
 
-        public void UnregisterPropertyChange(Action<string> callback)
-        {
+            public IReadOnlyList<string> Keys => _keys;
+
+            public Subscription RegisterPropertyChange(Action<string> callback) => null;
         }
     }
 }
