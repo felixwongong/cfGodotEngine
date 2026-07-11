@@ -113,6 +113,17 @@ public partial class SearchableOptionDropdown : Control
         return _items.Exists(x => x.id.Equals(id, StringComparison.InvariantCultureIgnoreCase));
     }
 
+    /// <summary>
+    /// Selects the item with the given id. If it does not exist, adds it
+    /// dynamically so the stored value remains visible in the dropdown.
+    /// </summary>
+    public void SelectOrAdd(string id, string displayText = "")
+    {
+        if (!HasItem(id) && !string.IsNullOrEmpty(id))
+            AddItem(id, displayText);
+        Select(id);
+    }
+
     public void SetItems(IEnumerable<(string id, string displayText)> items)
     {
         Clear();
@@ -127,13 +138,10 @@ public partial class SearchableOptionDropdown : Control
         Deselect();
         selectingIndex = _items.FindIndex(x => x.id.Equals(id, StringComparison.InvariantCultureIgnoreCase));
         if (selectingIndex != -1)
-            _button.Text = _items[selectingIndex].displayText;
-        else
         {
-            GD.PrintErr($"OptionDropdown: Item with id '{id}' not found.");
-            return;
+            _button.Text = _items[selectingIndex].displayText;
+            ApplyFilter(_searchFilter.Text ?? "");
         }
-        ApplyFilter(_searchFilter.Text ?? "");
     }
 
     public void Deselect()

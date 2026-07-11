@@ -85,7 +85,7 @@ public partial class BindingTargetPropertyDrawer : CustomPropertyDrawer
 
         var value = GetEditedPropertyValue();
         var id = value.VariantType == Variant.Type.Nil ? string.Empty : (string)value;
-        _dropdown.Select(id);
+        _dropdown.SelectOrAdd(id, id);
     }
 
     private void RefreshWarning()
