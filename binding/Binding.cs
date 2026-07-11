@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
+using cfEngine;
 using cfEngine.Rx;
 using Godot;
 
@@ -30,11 +32,22 @@ namespace cfGodotEngine.Binding
 
         [Export] private BindingConverter[] _converters;
 
+#if DEBUG
+        [ExportGroup("Debug")]
+        [Export] private string _debugLastValue;
+        [Export] private string _debugLastError = "";
+        [Export] private bool _debugIsSubscribed;
+        [Export] private string _debugSourceType = "";
+        [Export] private string _debugTargetPath = "";
+#endif
+
         private IBindingSource _bindingSource;
         private Subscription _changeSub;
 
         public StringName Key => _key;
         public StringName ApplyTo => _applyTo;
+
+        private string XPath => GetPath();
 
         public override void _Ready()
         {
@@ -60,13 +73,35 @@ namespace cfGodotEngine.Binding
             Unsubscribe();
             _bindingSource = FindBindingSource();
             if (_bindingSource == null)
+            {
+#if DEBUG
+                Log.LogWarning($"[Binding:{XPath}] No IBindingSource found in parent tree. Binding is inactive.");
+                UpdateDebugState(null, "No source", null, false);
+#endif
                 return;
+            }
 
             if (_key == null || _key.IsEmpty)
+            {
+#if DEBUG
+                Log.LogWarning($"[Binding:{XPath}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
+                UpdateDebugState(null, "Key empty", _bindingSource.GetType().Name, false);
+#endif
                 return;
+            }
+
+            BindingDebug.LogVerbose($"[Binding:{XPath}] Resolved source '{_bindingSource.GetType().Name}' for key '{_key}'.");
+
+            var target = GetParentOrNull<Node>();
+            UpdateDebugTargetPath(target);
 
             ApplyValue();
             _changeSub = _bindingSource.GetBindings.RegisterPropertyChange(OnKeyChanged);
+#if DEBUG
+            _debugIsSubscribed = true;
+#endif
+
+            BindingDebug.LogVerbose($"[Binding:{XPath}] Subscribed to property change for key '{_key}'.");
         }
 
         private void Unsubscribe()
@@ -77,6 +112,10 @@ namespace cfGodotEngine.Binding
                 _changeSub = null;
             }
             _bindingSource = null;
+#if DEBUG
+            _debugIsSubscribed = false;
+            _debugSourceType = "";
+#endif
         }
 
         private IBindingSource FindBindingSource()
@@ -123,35 +162,101 @@ namespace cfGodotEngine.Binding
 
             var map = _bindingSource.GetBindings;
             if (map == null)
+            {
+#if DEBUG
+                Log.LogWarning($"[Binding:{XPath}] Source '{_bindingSource.GetType().Name}' returned null PropertyMap.");
+                UpdateDebugState(null, "Null PropertyMap", _bindingSource.GetType().Name, _debugIsSubscribed);
+#endif
                 return;
+            }
 
             if (!map.GetVariant(_key.ToString(), out var value))
+            {
+#if DEBUG
+                Log.LogWarning($"[Binding:{XPath}] Key '{_key}' not exposed by source '{_bindingSource.GetType().Name}'. Available: [{string.Join(", ", map.Keys)}].");
+                UpdateDebugState("<missing>", $"Key '{_key}' not in map", _bindingSource.GetType().Name, _debugIsSubscribed);
+#endif
                 return;
+            }
 
             var target = GetParentOrNull<Node>();
             if (target == null)
-                return;
-
-            if (!string.IsNullOrEmpty(_format))
-                value = string.Format(_format, value.ToString());
-
-            if (_converters != null)
             {
-                foreach (var converter in _converters)
+#if DEBUG
+                Log.LogWarning($"[Binding:{XPath}] Parent (target) is null; cannot apply value.");
+#endif
+                return;
+            }
+
+            UpdateDebugState(value.ToString(), "", _bindingSource?.GetType().Name, _debugIsSubscribed);
+
+            BindingDebug.LogVerbose($"[Binding:{XPath}] Apply key '{_key}' value '{value.VariantType}:{value}' to target '{target.GetPath()}'.");
+
+            try
+            {
+                if (!string.IsNullOrEmpty(_format))
                 {
-                    if (converter == null) continue;
-                    value = converter.Convert(value);
+                    value = string.Format(_format, value.ToString());
+                    BindingDebug.LogVerbose($"[Binding:{XPath}] Format '{_format}' -> '{value}'.");
                 }
+
+                if (_converters != null)
+                {
+                    foreach (var converter in _converters)
+                    {
+                        if (converter == null) continue;
+                        value = converter.Convert(value);
+                        BindingDebug.LogVerbose($"[Binding:{XPath}] Converter '{converter.GetType().Name}' -> '{value.VariantType}:{value}'.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.LogException(ex, $"[Binding:{XPath}] Format/converter threw for key '{_key}'. Subsequent bindings in this source are NOT affected.");
+                UpdateDebugState(value.ToString(), "Format/converter threw: " + ex.Message, _bindingSource?.GetType().Name, _debugIsSubscribed);
+                return;
             }
 
             if (_applyTo == null || _applyTo.IsEmpty)
+            {
+                BindingDebug.LogVerbose($"[Binding:{XPath}] Apply To is empty; value read but no target set.");
                 return;
-
-            if (target.HasMethod(_applyTo))
-                target.Call(_applyTo, value);
-            else
-                target.Set(_applyTo, value);
+            }
+            try
+            {
+                if (target.HasMethod(_applyTo))
+                {
+                    target.Call(_applyTo, value);
+                    BindingDebug.LogVerbose($"[Binding:{XPath}] Call method '{_applyTo}' on '{target.GetPath()}'.");
+                }
+                else
+                {
+                    target.Set(_applyTo, value);
+                    BindingDebug.LogVerbose($"[Binding:{XPath}] Set property '{_applyTo}' on '{target.GetPath()}'.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateDebugState(value.ToString(), $"Apply To '{_applyTo}' threw: {ex.Message}", _bindingSource?.GetType().Name, _debugIsSubscribed);
+            }
         }
+
+#if DEBUG
+        [Conditional("DEBUG")]
+        private void UpdateDebugState(string lastValue, string lastError, string sourceType, bool isSubscribed)
+        {
+            _debugLastValue = lastValue;
+            _debugLastError = lastError ?? "";
+            _debugSourceType = sourceType ?? "";
+            _debugIsSubscribed = isSubscribed;
+        }
+
+        [Conditional("DEBUG")]
+        private void UpdateDebugTargetPath(Node target)
+        {
+            _debugTargetPath = target?.GetPath() ?? "";
+        }
+#endif
 
         #region Inspector helpers
 
