@@ -1,5 +1,4 @@
 using System;
-using cfGodotEngine.Binding;
 using Godot;
 using Godot.Collections;
 
@@ -36,7 +35,7 @@ public partial class RandomNodeToggler2D: Node2D
     }
     #endif
     
-    [PropertyBinding] private Node2D _activeNode;
+    private Node2D _activeNode;
     private int _totalWeight;
 
     public override void _Ready()
@@ -95,7 +94,7 @@ public partial class RandomNodeToggler2D: Node2D
                 var newActive = GetNode<Node2D>(item.Node);
                 newActive.SetProcessMode(ProcessModeEnum.Inherit);
                 newActive.Visible = true;
-                SetActiveNode(newActive);
+                _activeNode = newActive;
                 break;
             }
         }
