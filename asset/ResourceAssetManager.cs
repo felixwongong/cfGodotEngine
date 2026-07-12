@@ -1,5 +1,4 @@
-﻿﻿using System;
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using cfEngine.Asset;
 using Godot;
@@ -8,6 +7,8 @@ namespace cfGodotEngine.Asset;
 
 public class ResourceAssetManager: AssetManager<Resource>
 {
+    private AsyncResourceLoader _loader = new();
+
     protected override AssetHandle<T> _Load<T>(string path)
     {
         var resource = ResourceLoader.Load<T>(path);
@@ -16,7 +17,7 @@ public class ResourceAssetManager: AssetManager<Resource>
 
     protected override Task<AssetHandle<T>> _LoadAsync<T>(string path, CancellationToken token = default)
     {
-        var resourceTask = AsyncResourceLoader.LoadAsync(path, null);
+        var resourceTask = _loader.LoadAsync(path, null);
         return resourceTask.ContinueWith(static t => new AssetHandle<T>((T)t.Result, static () => {}), token);
     }
 }

@@ -8,7 +8,7 @@ using Godot;
 
 namespace cfGodotEngine.SceneManagement;
 
-public partial class GodotSceneManager: MonoInstance<GodotSceneManager>, ISceneManager<Node>
+public partial class GodotSceneManager: Node, ISceneManager<Node>
 {
     struct PreloadProcess
     {

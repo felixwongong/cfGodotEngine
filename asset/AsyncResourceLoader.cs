@@ -8,23 +8,12 @@ using Array = Godot.Collections.Array;
 
 namespace cfGodotEngine.Asset;
 
-public partial class AsyncResourceLoader
-{
-    public static Task<Resource> LoadAsync(string path, in IProgress<float> progress, string typeHint = "",
-        bool useSubThread = false, ResourceLoader.CacheMode cacheMode = ResourceLoader.CacheMode.Reuse)
-    {
-        return Instance.Load(path, progress, typeHint, useSubThread, cacheMode);
-    }
-}
-
-public partial class AsyncResourceLoader : MonoInstance<AsyncResourceLoader>
+public partial class AsyncResourceLoader : Node
 {
     private System.Collections.Generic.Dictionary<string, (IProgress<float> progress, TaskCompletionSource<Resource>
         taskSourceObject)> _loadingTasks = new();
 
-    private ILogger logger;
-
-    public Task<Resource> Load(string path, in IProgress<float> progress, string typeHint = "",
+    public Task<Resource> LoadAsync(string path, in IProgress<float> progress, string typeHint = "",
         bool useSubThread = false, ResourceLoader.CacheMode cacheMode = ResourceLoader.CacheMode.Reuse)
     {
         if (_loadingTasks.TryGetValue(path, out var x))
@@ -64,7 +53,7 @@ public partial class AsyncResourceLoader : MonoInstance<AsyncResourceLoader>
                     progress?.Report(1);
                     taskSourceObject.TrySetException(new AsyncLoadFailedException(status));
                     keyToRemove.Add(path);
-                    logger?.LogError($"Async resource load failed for path: {path} with status: {status}");
+                    Log.LogError($"Async resource load failed for path: {path} with status: {status}");
                     continue;
                 case ResourceLoader.ThreadLoadStatus.Loaded:
                     progress?.Report(1);
@@ -73,12 +62,12 @@ public partial class AsyncResourceLoader : MonoInstance<AsyncResourceLoader>
                     {
                         taskSourceObject.TrySetException(
                             new AsyncLoadFailedException(ResourceLoader.ThreadLoadStatus.InvalidResource));
-                        logger?.LogError($"Async resource load returned null for path: {path}");
+                        Log.LogError($"Async resource load returned null for path: {path}");
                     }
                     else
                     {
                         taskSourceObject.TrySetResult(resource);
-                        logger?.LogInfo($"Async resource loaded successfully for path: {path}");
+                        Log.LogInfo($"Async resource loaded successfully for path: {path}");
                     }
 
                     keyToRemove.Add(path);
@@ -90,11 +79,6 @@ public partial class AsyncResourceLoader : MonoInstance<AsyncResourceLoader>
         {
             _loadingTasks.Remove(key);
         }
-    }
-
-    public void SetLogger(ILogger logger)
-    {
-        this.logger = logger;
     }
 }
 
