@@ -68,6 +68,13 @@ public partial class CompositeConditionNode: ConditionNode
         _onConditionsFulfilledSub = subscriptionGroup;
     }
 
+    public override void _ExitTree()
+    {
+        base._ExitTree();
+        _onConditionsFulfilledSub?.Unsubscribe();
+        _onConditionsFulfilledSub = null;
+    }
+
     private void OnConditionFulfilled()
     {
         bool fulfilled = false;
