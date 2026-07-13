@@ -51,7 +51,7 @@ namespace cfGodotEngine.Binding
     /// <see cref="IPropertyMap"/>. Handles per-source batched updates
     /// (replaces the old global <c>BindingUpdateScheduler</c>).
     /// </summary>
-    public class PropertyMap : IPropertyMap
+    public class PropertyMap : IPropertyMap, IDisposable
     {
         private readonly Dictionary<string, IReactivePropertyAdapter> _properties;
         private readonly Relay<string> _keyChangedRelay;
@@ -59,6 +59,7 @@ namespace cfGodotEngine.Binding
 
         private int _updateDepth;
         private HashSet<string> _pending;
+        private bool _disposed;
 
         internal PropertyMap(List<(string key, IReactivePropertyAdapter adapter)> entries)
         {
@@ -74,6 +75,19 @@ namespace cfGodotEngine.Binding
         }
 
         public static PropertyMapBuilder Build() => new();
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            foreach (var sub in _adapterSubs)
+            {
+                sub?.Unsubscribe();
+            }
+            _adapterSubs.Clear();
+            _keyChangedRelay.RemoveAll();
+            _pending?.Clear();
+        }
 
         public bool GetVariant(string key, out Variant value)
         {

@@ -50,6 +50,13 @@ public class SignalRx<[MustBeVariant]T>: Rx<T>
         singleArgs[0] = variant;
         sourceNode.EmitSignal(signalName, singleArgs);
     }
+
+    public override void Dispose()
+    {
+        _subscription?.Unsubscribe();
+        _subscription = null;
+        base.Dispose();
+    }
 }
 
 public class SignalRx<[MustBeVariant]A, [MustBeVariant]B>: Rx<(A a, B b)>
@@ -110,5 +117,12 @@ public class SignalRx<[MustBeVariant]A, [MustBeVariant]B>: Rx<(A a, B b)>
     public void Set(A a, B b)
     {
         base.Set((a, b));
+    }
+
+    public override void Dispose()
+    {
+        _subscription?.Unsubscribe();
+        _subscription = null;
+        base.Dispose();
     }
 }
