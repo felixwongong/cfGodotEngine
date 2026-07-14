@@ -11,19 +11,19 @@ namespace cfGodotEngine.Binding
     /// </summary>
     [Tool]
     [GlobalClass]
-    public partial class MockBindingSource : Node, IBindingSource
+    public partial class StaticBindingSource : Node, IBindingSource
     {
         [Export]
         public Godot.Collections.Dictionary sampleValues = new();
 
-        private MockPropertyMap _propertyMap;
+        private PropertyMap _propertyMap;
 
         public IPropertyMap GetBindings
         {
             get
             {
                 if (_propertyMap == null)
-                    _propertyMap = new MockPropertyMap(this);
+                    _propertyMap = new PropertyMap(this);
                 return _propertyMap;
             }
         }
@@ -35,12 +35,12 @@ namespace cfGodotEngine.Binding
             public void Dispose() { }
         }
 
-        private class MockPropertyMap : IPropertyMap
+        private class PropertyMap : IPropertyMap
         {
-            private readonly MockBindingSource _owner;
+            private readonly StaticBindingSource _owner;
             private List<string> _keys;
 
-            public MockPropertyMap(MockBindingSource owner)
+            public PropertyMap(StaticBindingSource owner)
             {
                 _owner = owner;
                 _keys = new List<string>();

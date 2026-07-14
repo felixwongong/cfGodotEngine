@@ -23,8 +23,6 @@ namespace cfGodotEngine.Binding
 
         [Export] private NodePath _sourceOverride;
 
-        [Export] private NodePath _mockSource;
-
         [Export(PropertyHint.None, "BindingApplyTo")]
         private StringName _applyTo;
 
@@ -122,13 +120,6 @@ namespace cfGodotEngine.Binding
         {
             bool isEditor = Engine.IsEditorHint();
 
-            if (isEditor && _mockSource != null && !_mockSource.IsEmpty)
-            {
-                var mock = GetNodeOrNull<Node>(_mockSource);
-                if (mock is IBindingSource mockSource)
-                    return mockSource;
-            }
-
             if (_sourceOverride != null && !_sourceOverride.IsEmpty)
             {
                 var node = GetNodeOrNull<Node>(_sourceOverride);
@@ -140,8 +131,6 @@ namespace cfGodotEngine.Binding
             {
                 if (x is IBindingSource source)
                 {
-                    if (!isEditor && x is MockBindingSource)
-                        continue;
                     return source;
                 }
             }
@@ -188,8 +177,9 @@ namespace cfGodotEngine.Binding
                 return;
             }
 
+#if DEBUG
             UpdateDebugState(value.ToString(), "", _bindingSource?.GetType().Name, _debugIsSubscribed);
-
+#endif
             BindingDebug.LogVerbose($"[Binding:{XPath}] Apply key '{_key}' value '{value.VariantType}:{value}' to target '{target.GetPath()}'.");
 
             try

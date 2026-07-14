@@ -80,13 +80,6 @@ namespace cfGodotEngine.Binding
         {
             bool isEditor = Engine.IsEditorHint();
 
-            if (isEditor && _mockSource != null && !_mockSource.IsEmpty)
-            {
-                var mock = GetNodeOrNull<Node>(_mockSource);
-                if (mock is IBindingSource mockSource)
-                    return mockSource;
-            }
-
             if (_sourceOverride != null && !_sourceOverride.IsEmpty)
             {
                 var node = GetNodeOrNull<Node>(_sourceOverride);
@@ -98,8 +91,6 @@ namespace cfGodotEngine.Binding
             {
                 if (x is IBindingSource source)
                 {
-                    if (!isEditor && x is MockBindingSource)
-                        continue;
                     return source;
                 }
             }
