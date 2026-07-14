@@ -10,7 +10,8 @@ namespace cfGodotEngine.Tool;
 [GlobalClass]
 public partial class Stateful2D: Node2D
 {
-    [Export] private Godot.Collections.Dictionary<string, Node2D> _stateNodes = new();
+    [Export] private Dictionary<string, Node2D> _stateNodes = new();
+    [Export] private int _version = 0;
 
 #if TOOLS
     public override string[] _GetConfigurationWarnings()
@@ -38,19 +39,20 @@ public partial class Stateful2D: Node2D
         if (Engine.IsEditorHint())
             return;
 
-        // Set up default (all-hidden) state before any child Binding runs
-        // _Ready. _EnterTree fires parent-first, so this runs before the
-        // Binding child's _Ready which then applies the correct state.
-        foreach (var node in _stateNodes.Values)
+        if (_version == 0)
         {
-            if (node == null) continue;
-            node.Visible = false;
-            node.SetProcessMode(ProcessModeEnum.Disabled);
+            foreach (var node in _stateNodes.Values)
+            {
+                if (node == null) continue;
+                node.Visible = false;
+                node.SetProcessMode(ProcessModeEnum.Disabled);
+            }
         }
     }
 
     public void SetValue(Variant newValue)
     {
+        _version++;
         var newKey = newValue.AsString();
         foreach (var (key, node) in _stateNodes)
         {
