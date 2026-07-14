@@ -52,6 +52,9 @@ public partial class Stateful2D: Node2D
 
     public void SetValue(Variant newValue)
     {
+        if (Engine.IsEditorHint())
+            return;
+        
         _version++;
         var newKey = newValue.AsString();
         foreach (var (key, node) in _stateNodes)
