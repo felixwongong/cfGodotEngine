@@ -56,8 +56,7 @@ namespace cfGodotEngine.Binding
         public override void _EnterTree()
         {
             base._EnterTree();
-            if (Engine.IsEditorHint())
-                ResolveAndApply();
+            ResolveAndApply();
         }
 
         public override void _ExitTree()
