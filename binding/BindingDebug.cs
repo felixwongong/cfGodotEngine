@@ -12,22 +12,14 @@ namespace cfGodotEngine.Binding
     /// </summary>
     public static class BindingDebug
     {
-        public const string EnvVar = "CATSWEEPER_BINDING_VERBOSE";
-
-        public static bool Verbose { get; private set; }
-
         static BindingDebug()
         {
-#if DEBUG
-            Verbose = OS.HasEnvironment(EnvVar)
-                      && OS.GetEnvironment(EnvVar) == "1";
-#endif
         }
 
         [Conditional("DEBUG")]
         public static void LogVerbose(string message)
         {
-            if (Verbose) Log.LogInfo(message);
+            Log.LogDebug(message);
         }
     }
 }
