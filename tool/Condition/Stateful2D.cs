@@ -1,3 +1,4 @@
+using cfEngine;
 using cfEngine.Pooling;
 using Godot;
 using Godot.Collections;
@@ -48,6 +49,16 @@ public partial class Stateful2D: Node2D
                 node.SetProcessMode(ProcessModeEnum.Disabled);
             }
         }
+    }
+
+    public void SetStateMap(Dictionary<string, Node2D> stateNodes)
+    {
+        if (stateNodes == null)
+        {
+            Log.LogException(new System.ArgumentNullException(nameof(stateNodes)));
+            return;
+        }
+        _stateNodes = stateNodes;
     }
 
     public void SetValue(Variant newValue)

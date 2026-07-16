@@ -65,6 +65,18 @@ namespace cfGodotEngine.Binding
             base._ExitTree();
         }
 
+#if DEBUG
+        public override void _ValidateProperty(Godot.Collections.Dictionary property)
+        {
+            base._ValidateProperty(property);
+            if (property["name"].AsString().StartsWith("_debug"))
+            {
+                var usage = (PropertyUsageFlags)property["usage"].AsInt32();
+                property["usage"] = (int)(usage & ~PropertyUsageFlags.Storage);
+            }
+        }
+#endif
+
         private void ResolveAndApply()
         {
             Unsubscribe();
