@@ -44,9 +44,15 @@ public partial class ObjectSpawner2D: Node2D
         return [];
     }
 #endif
-    
-    public void Spawn(int spawnCount)
+
+    public void Spawn(int spawnCount) => CallDeferred(nameof(_Spawn),  spawnCount);
+    public void SpawnOne() => Spawn(1);
+
+    private void _Spawn(int spawnCount)
     {
+        if (Engine.IsEditorHint())
+            return;
+
         var pool = GetPool();
         if (pool == null)
         {
@@ -65,6 +71,11 @@ public partial class ObjectSpawner2D: Node2D
             }
             else
             {
+                if (!IsInsideTree())
+                {
+                    Log.LogError("ObjectSpawner2D: spawn count is invalid.");
+                    return;
+                }
                 GetTree().Root.AddChild(instance);
                 instance.SetPosition(GetGlobalPosition());
             }
