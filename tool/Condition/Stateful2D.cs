@@ -11,8 +11,10 @@ namespace cfGodotEngine.Tool;
 [GlobalClass]
 public partial class Stateful2D: Node2D
 {
-    [Export] private Dictionary<string, Node2D> _stateNodes = new();
+    [Export] private Dictionary<string, NodePath> _stateNodes = new();
     [Export] private int _version = 0;
+
+    private readonly Dictionary<string, Node2D> _resolved = new();
 
 #if TOOLS
     public override string[] _GetConfigurationWarnings()
@@ -25,8 +27,10 @@ public partial class Stateful2D: Node2D
         {
             foreach (var kv in _stateNodes)
             {
-                if (kv.Value == null)
+                if (kv.Value == null || kv.Value.IsEmpty)
                     warnings.Add($"StatefulEnable2D: State node for key '{kv.Key}' is not set.");
+                else if (GetNodeOrNull<Node2D>(kv.Value) == null)
+                    warnings.Add($"StatefulEnable2D: State node for key '{kv.Key}' does not resolve: '{kv.Value}'");
             }
         }
         
@@ -60,9 +64,10 @@ public partial class Stateful2D: Node2D
         if (Engine.IsEditorHint())
             return;
 
-        if (_version == 0)
+        Resolve();
+		if (_version == 0)
         {
-            foreach (var node in _stateNodes.Values)
+            foreach (var node in _resolved.Values)
             {
                 if (node == null) continue;
                 node.Visible = false;
@@ -71,7 +76,7 @@ public partial class Stateful2D: Node2D
         }
     }
 
-    public void SetStateMap(Dictionary<string, Node2D> stateNodes)
+    public void SetStateMap(Dictionary<string, NodePath> stateNodes)
     {
         if (stateNodes == null)
         {
@@ -86,10 +91,12 @@ public partial class Stateful2D: Node2D
         if (Engine.IsEditorHint())
             return;
         
+        Resolve();
         _version++;
         var newKey = newValue.AsString();
-        foreach (var (key, node) in _stateNodes)
+        foreach (var (key, node) in _resolved)
         {
+            if (node == null) continue;
             if (key == newKey)
             {
                 node.Visible = true;
@@ -100,6 +107,18 @@ public partial class Stateful2D: Node2D
                 node.Visible = false;
                 node.SetProcessMode(ProcessModeEnum.Disabled);
             }
+        }
+    }
+
+    private void Resolve()
+    {
+        if (_resolved.Count > 0 || _stateNodes == null)
+            return;
+        foreach (var (key, path) in _stateNodes)
+        {
+            var node = GetNodeOrNull<Node2D>(path);
+            if (node != null)
+                _resolved[key] = node;
         }
     }
 }
