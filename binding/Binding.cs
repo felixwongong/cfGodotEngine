@@ -45,6 +45,11 @@ namespace cfGodotEngine.Binding
         public StringName Key => _key;
         public StringName ApplyTo => _applyTo;
 
+        public static Binding Create(StringName key, StringName applyTo = null)
+        {
+            return new Binding { _key = key, _applyTo = applyTo };
+        }
+
         private string XPath => GetPath();
 
         public override void _Ready()

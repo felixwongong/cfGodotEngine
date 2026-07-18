@@ -32,9 +32,29 @@ public partial class Stateful2D: Node2D
         
         return base._GetConfigurationWarnings();
     }
+
+    public override void _ValidateProperty(Godot.Collections.Dictionary property)
+    {
+        if (property["name"].AsString() != "_stateNodes")
+            return;
+
+        Node ancestor = GetParent();
+        while (ancestor != null)
+        {
+            var snap = ancestor.Get("_layoutSnapshot");
+            if (snap.VariantType == Variant.Type.Dictionary && snap.AsGodotDictionary().Count > 0)
+            {
+                int usage = property["usage"].AsInt32();
+                usage |= (int)PropertyUsageFlags.ReadOnly;
+                property["usage"] = Variant.From(usage);
+                return;
+            }
+            ancestor = ancestor.GetParent();
+        }
+    }
 #endif
-    
-    public override void _EnterTree()
+
+	public override void _EnterTree()
     {
         base._EnterTree();
         if (Engine.IsEditorHint())
