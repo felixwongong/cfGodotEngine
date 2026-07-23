@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 
 namespace cfGodotEngine.Binding
 {
     public interface IBindingSource
     {
+        public static abstract IEnumerable<string> BindingKeys { get; }
+        public IEnumerable<string> GetBindingKeys();
         public IPropertyMap GetBindings { get; }
 
         /// <summary>

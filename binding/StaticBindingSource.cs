@@ -28,6 +28,9 @@ namespace cfGodotEngine.Binding
             }
         }
 
+        public static IEnumerable<string> BindingKeys => Array.Empty<string>();
+        public IEnumerable<string> GetBindingKeys() => BindingKeys;
+
         public IDisposable BeginUpdate() => new EmptyUpdateScope();
 
         private class EmptyUpdateScope : IDisposable

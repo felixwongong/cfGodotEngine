@@ -108,13 +108,13 @@ namespace cfGodotEngine.Binding
         private IEnumerable<string> GetKeys()
         {
             var editedObject = GetEditedObject();
+            IBindingSource source = null;
             if (editedObject is Binding binder)
-                return binder.GetAvailableKeys();
+                source = binder.FindBindingSource();
+            else if (editedObject is CollectionBinding collectionBinder)
+                source = collectionBinder.FindBindingSource();
 
-            if (editedObject is CollectionBinding collectionBinder)
-                return collectionBinder.GetAvailableKeys();
-
-            return Array.Empty<string>();
+            return source == null ? Array.Empty<string>() : source.GetBindingKeys().ToArray();
         }
     }
 }

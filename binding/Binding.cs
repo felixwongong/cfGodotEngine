@@ -132,10 +132,8 @@ namespace cfGodotEngine.Binding
 #endif
         }
 
-        private IBindingSource FindBindingSource()
+        public IBindingSource FindBindingSource()
         {
-            bool isEditor = Engine.IsEditorHint();
-
             if (_sourceOverride != null && !_sourceOverride.IsEmpty)
             {
                 var node = GetNodeOrNull<Node>(_sourceOverride);
@@ -265,15 +263,6 @@ namespace cfGodotEngine.Binding
 #endif
 
         #region Inspector helpers
-
-        public IReadOnlyList<string> GetAvailableKeys()
-        {
-            var source = FindBindingSource();
-            if (source == null)
-                return Array.Empty<string>();
-
-            return source.GetBindings?.Keys ?? Array.Empty<string>();
-        }
 
         public IReadOnlyList<string> GetAvailableApplyTargets()
         {

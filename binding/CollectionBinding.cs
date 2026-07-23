@@ -76,7 +76,7 @@ namespace cfGodotEngine.Binding
             _bindingSource = null;
         }
 
-        private IBindingSource FindBindingSource()
+        public IBindingSource FindBindingSource()
         {
             bool isEditor = Engine.IsEditorHint();
 
@@ -183,15 +183,6 @@ namespace cfGodotEngine.Binding
                 GodotObject g => g,
                 _ => default(Variant)
             };
-        }
-
-        public IReadOnlyList<string> GetAvailableKeys()
-        {
-            var source = FindBindingSource();
-            if (source == null)
-                return Array.Empty<string>();
-
-            return source.GetBindings?.Keys ?? Array.Empty<string>();
         }
 
         public string ValidateBinding()
