@@ -5,41 +5,13 @@ using Godot;
 
 namespace cfGodotEngine.Binding
 {
-    public interface IReactivePropertyAdapter
-    {
-        Variant GetVariant();
-        object GetObject();
-        Subscription SubscribeToChange(Action handler);
-    }
-
-    public class ReactivePropertyAdapter<T> : IReactivePropertyAdapter
-    {
-        private readonly ReactiveProperty<T> _prop;
-        private readonly string _key;
-
-        public ReactivePropertyAdapter(ReactiveProperty<T> prop, string key)
-        {
-            _prop = prop;
-            _key = key;
-        }
-
-        public Variant GetVariant() => Variant.From(_prop.Value);
-
-        public object GetObject() => _prop.GetValue();
-
-        public Subscription SubscribeToChange(Action handler)
-        {
-            return _prop.Subscribe(_ => handler());
-        }
-    }
-
     public class PropertyMapBuilder
     {
-        private readonly List<(string key, IReactivePropertyAdapter adapter)> _entries = new();
+        private readonly List<(string key, IBindable bindable)> _entries = new();
 
-        public PropertyMapBuilder Add<T>(string key, ReactiveProperty<T> prop)
+        public PropertyMapBuilder Add(string key, IBindable bindable)
         {
-            _entries.Add((key, new ReactivePropertyAdapter<T>(prop, key)));
+            _entries.Add((key, bindable));
             return this;
         }
 
@@ -47,30 +19,30 @@ namespace cfGodotEngine.Binding
     }
 
     /// <summary>
-    /// Aggregates <see cref="ReactiveProperty{T}"/> fields into a single
+    /// Aggregates <see cref="IBindable"/> entries into a single
     /// <see cref="IPropertyMap"/>. Handles per-source batched updates
     /// (replaces the old global <c>BindingUpdateScheduler</c>).
     /// </summary>
     public class PropertyMap : IPropertyMap, IDisposable
     {
-        private readonly Dictionary<string, IReactivePropertyAdapter> _properties;
+        private readonly Dictionary<string, IBindable> _properties;
         private readonly Relay<string> _keyChangedRelay;
-        private readonly List<Subscription> _adapterSubs;
+        private readonly List<Subscription> _bindableSubs;
 
         private int _updateDepth;
         private HashSet<string> _pending;
         private bool _disposed;
 
-        internal PropertyMap(List<(string key, IReactivePropertyAdapter adapter)> entries)
+        internal PropertyMap(List<(string key, IBindable bindable)> entries)
         {
-            _properties = new Dictionary<string, IReactivePropertyAdapter>(entries.Count);
+            _properties = new Dictionary<string, IBindable>(entries.Count);
             _keyChangedRelay = new Relay<string>(this);
-            _adapterSubs = new List<Subscription>(entries.Count);
+            _bindableSubs = new List<Subscription>(entries.Count);
 
-            foreach (var (key, adapter) in entries)
+            foreach (var (key, bindable) in entries)
             {
-                _properties[key] = adapter;
-                _adapterSubs.Add(adapter.SubscribeToChange(() => OnPropertyChanged(key)));
+                _properties[key] = bindable;
+                _bindableSubs.Add(bindable.SubscribeChanged(() => OnPropertyChanged(key)));
             }
         }
 
@@ -80,20 +52,20 @@ namespace cfGodotEngine.Binding
         {
             if (_disposed) return;
             _disposed = true;
-            foreach (var sub in _adapterSubs)
+            foreach (var sub in _bindableSubs)
             {
                 sub?.Unsubscribe();
             }
-            _adapterSubs.Clear();
+            _bindableSubs.Clear();
             _keyChangedRelay.RemoveAll();
             _pending?.Clear();
         }
 
         public bool GetVariant(string key, out Variant value)
         {
-            if (_properties.TryGetValue(key, out var adapter))
+            if (_properties.TryGetValue(key, out var bindable))
             {
-                value = adapter.GetVariant();
+                value = bindable.GetVariant();
                 return true;
             }
             value = default;
@@ -102,9 +74,9 @@ namespace cfGodotEngine.Binding
 
         public bool GetObject(string key, out object value)
         {
-            if (_properties.TryGetValue(key, out var adapter))
+            if (_properties.TryGetValue(key, out var bindable))
             {
-                value = adapter.GetObject();
+                value = bindable.GetObject();
                 return true;
             }
             value = null;
