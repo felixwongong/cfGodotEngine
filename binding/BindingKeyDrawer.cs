@@ -92,9 +92,16 @@ namespace cfGodotEngine.Binding
                 return;
 
             var editedObject = GetEditedObject();
+            string error = null;
             if (editedObject is Binding binder)
+                error = binder.ValidateBinding();
+            else if (editedObject is CollectionBinding collectionBinder)
+                error = collectionBinder.ValidateBinding();
+            else if (editedObject is KeyedCollectionBinding keyedCollectionBinder)
+                error = keyedCollectionBinder.ValidateBinding();
+
+            if (error != null)
             {
-                var error = binder.ValidateBinding();
                 _warningLabel.Visible = !string.IsNullOrEmpty(error);
                 _warningLabel.Text = error;
             }

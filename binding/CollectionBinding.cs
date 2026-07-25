@@ -19,7 +19,7 @@ namespace cfGodotEngine.Binding
     [CustomInspector]
     public partial class CollectionBinding : Node
     {
-        [Export] private StringName _key;
+        [Export(PropertyHint.None, "BindingSourceKey")] private StringName _key;
 
         [Export] private NodePath _sourceOverride;
 
