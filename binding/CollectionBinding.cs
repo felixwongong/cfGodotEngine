@@ -17,56 +17,49 @@ namespace cfGodotEngine.Binding
     [Tool]
     [GlobalClass]
     [CustomInspector]
-    public partial class CollectionBinding : Node
+    public partial class CollectionBinding : BindingBase
     {
-        [Export(PropertyHint.None, "BindingSourceKey")] private StringName _key;
-
-        [Export] private NodePath _sourceOverride;
-
         [Export] private NodePath _mockSource;
 
         [Export] private PackedScene _itemPrefab;
 
         [Export] private StringName _itemSetterMethod = "SetData";
 
-        private IBindingSource _bindingSource;
         private IBindableList _list;
         private IBindableListUntyped _listUntyped;
-        private Subscription _changeSub;
         private readonly List<Node> _rows = new();
         private bool _warnedMissingSetter;
         private bool _warnedIncompatibleItem;
 
-        public StringName Key => _key;
-
-        public override void _Ready()
+        public override IBindingSource FindBindingSource()
         {
-            base._Ready();
-            ResolveAndApply();
+            if (_mockSource != null && !_mockSource.IsEmpty)
+            {
+                var node = GetNodeOrNull<Node>(_mockSource);
+                if (node is IBindingSource mockSource)
+                    return mockSource;
+            }
+
+            return base.FindBindingSource();
         }
 
-        public override void _EnterTree()
+        protected override void ResolveAndApply()
         {
-            base._EnterTree();
-            if (Engine.IsEditorHint())
-                ResolveAndApply();
-        }
-
-        public override void _ExitTree()
-        {
-            Unsubscribe();
-            base._ExitTree();
-        }
-
-        private void ResolveAndApply()
-        {
-            Unsubscribe();
-            _bindingSource = FindBindingSource();
-            if (_bindingSource == null)
+            if (!TryResolveSource())
+            {
+#if DEBUG
+                Log.LogWarning($"[CollectionBinding:{GetPath()}] No IBindingSource found in parent tree. Binding is inactive.");
+#endif
                 return;
+            }
 
             if (_key == null || _key.IsEmpty)
+            {
+#if DEBUG
+                Log.LogWarning($"[CollectionBinding:{GetPath()}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
+#endif
                 return;
+            }
 
             var map = _bindingSource.GetBindings;
             if (map == null || !map.GetCollection(_key.ToString(), out var collection))
@@ -89,38 +82,14 @@ namespace cfGodotEngine.Binding
             _listUntyped = list as IBindableListUntyped;
             RebuildAll();
             _changeSub = _list.SubscribeChanged(OnListChanged);
+            _resolved = true;
         }
 
-        private void Unsubscribe()
+        protected override void Unsubscribe()
         {
-            if (_changeSub != null)
-            {
-                _changeSub.Unsubscribe();
-                _changeSub = null;
-            }
+            base.Unsubscribe();
             _list = null;
             _listUntyped = null;
-            _bindingSource = null;
-        }
-
-        public IBindingSource FindBindingSource()
-        {
-            if (_sourceOverride != null && !_sourceOverride.IsEmpty)
-            {
-                var node = GetNodeOrNull<Node>(_sourceOverride);
-                if (node is IBindingSource overrideSource)
-                    return overrideSource;
-            }
-
-            for (var x = GetParentOrNull<Node>(); x != null; x = x.GetParentOrNull<Node>())
-            {
-                if (x is IBindingSource source)
-                {
-                    return source;
-                }
-            }
-
-            return null;
         }
 
         private void OnListChanged(ListChange change)
@@ -263,7 +232,7 @@ namespace cfGodotEngine.Binding
             };
         }
 
-        public string ValidateBinding()
+        public override string ValidateBinding()
         {
             if (_key == null || _key.IsEmpty)
                 return "Key is not set";

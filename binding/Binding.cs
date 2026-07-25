@@ -16,13 +16,8 @@ namespace cfGodotEngine.Binding
     [Tool]
     [GlobalClass]
     [CustomInspector]
-    public partial class Binding : Node
+    public partial class Binding : BindingBase
     {
-        [Export(PropertyHint.None, "BindingSourceKey")]
-        private StringName _key;
-
-        [Export] private NodePath _sourceOverride;
-
         [Export(PropertyHint.None, "BindingApplyTo")]
         private StringName _applyTo;
 
@@ -39,10 +34,6 @@ namespace cfGodotEngine.Binding
         [Export] private string _debugTargetPath = "";
 #endif
 
-        private IBindingSource _bindingSource;
-        private Subscription _changeSub;
-
-        public StringName Key => _key;
         public StringName ApplyTo => _applyTo;
 
         public static Binding Create(StringName key, StringName applyTo = null)
@@ -51,24 +42,6 @@ namespace cfGodotEngine.Binding
         }
 
         private string XPath => GetPath();
-
-        public override void _Ready()
-        {
-            base._Ready();
-            ResolveAndApply();
-        }
-
-        public override void _EnterTree()
-        {
-            base._EnterTree();
-            ResolveAndApply();
-        }
-
-        public override void _ExitTree()
-        {
-            Unsubscribe();
-            base._ExitTree();
-        }
 
 #if DEBUG
         public override void _ValidateProperty(Godot.Collections.Dictionary property)
@@ -82,11 +55,9 @@ namespace cfGodotEngine.Binding
         }
 #endif
 
-        private void ResolveAndApply()
+        protected override void ResolveAndApply()
         {
-            Unsubscribe();
-            _bindingSource = FindBindingSource();
-            if (_bindingSource == null)
+            if (!TryResolveSource())
             {
 #if DEBUG
                 Log.LogWarning($"[Binding:{XPath}] No IBindingSource found in parent tree. Binding is inactive.");
@@ -116,42 +87,18 @@ namespace cfGodotEngine.Binding
 #if DEBUG
             _debugIsSubscribed = true;
 #endif
+            _resolved = true;
 
             BindingDebug.LogVerbose($"[Binding:{XPath}] Subscribed to property change for key '{_key}'.");
         }
 
-        private void Unsubscribe()
+        protected override void Unsubscribe()
         {
-            if (_changeSub != null)
-            {
-                _changeSub.Unsubscribe();
-                _changeSub = null;
-            }
-            _bindingSource = null;
+            base.Unsubscribe();
 #if DEBUG
             _debugIsSubscribed = false;
             _debugSourceType = "";
 #endif
-        }
-
-        public IBindingSource FindBindingSource()
-        {
-            if (_sourceOverride != null && !_sourceOverride.IsEmpty)
-            {
-                var node = GetNodeOrNull<Node>(_sourceOverride);
-                if (node is IBindingSource overrideSource)
-                    return overrideSource;
-            }
-
-            for (var x = GetParentOrNull<Node>(); x != null; x = x.GetParentOrNull<Node>())
-            {
-                if (x is IBindingSource source)
-                {
-                    return source;
-                }
-            }
-
-            return null;
         }
 
         private void OnKeyChanged(string changedKey)
@@ -294,7 +241,7 @@ namespace cfGodotEngine.Binding
             return result;
         }
 
-        public string ValidateBinding()
+        public override string ValidateBinding()
         {
             if (_key == null || _key.IsEmpty)
                 return "Key is not set";

@@ -93,12 +93,8 @@ namespace cfGodotEngine.Binding
 
             var editedObject = GetEditedObject();
             string error = null;
-            if (editedObject is Binding binder)
-                error = binder.ValidateBinding();
-            else if (editedObject is CollectionBinding collectionBinder)
-                error = collectionBinder.ValidateBinding();
-            else if (editedObject is KeyedCollectionBinding keyedCollectionBinder)
-                error = keyedCollectionBinder.ValidateBinding();
+            if (editedObject is BindingBase bindingBase)
+                error = bindingBase.ValidateBinding();
 
             if (error != null)
             {
@@ -116,10 +112,8 @@ namespace cfGodotEngine.Binding
         {
             var editedObject = GetEditedObject();
             IBindingSource source = null;
-            if (editedObject is Binding binder)
-                source = binder.FindBindingSource();
-            else if (editedObject is CollectionBinding collectionBinder)
-                source = collectionBinder.FindBindingSource();
+            if (editedObject is BindingBase bindingBase)
+                source = bindingBase.FindBindingSource();
 
             return source == null ? Array.Empty<string>() : source.GetBindingKeys().ToArray();
         }

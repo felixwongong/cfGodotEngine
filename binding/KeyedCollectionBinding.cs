@@ -16,54 +16,35 @@ namespace cfGodotEngine.Binding
     [Tool]
     [GlobalClass]
     [CustomInspector]
-    public partial class KeyedCollectionBinding : Node
+    public partial class KeyedCollectionBinding : BindingBase
     {
-        [Export(PropertyHint.None, "BindingSourceKey")] private StringName _key;
-
-        [Export] private NodePath _sourceOverride;
-
         [Export] private PackedScene _itemPrefab;
 
         [Export] private StringName _itemSetterMethod = "SetData";
 
-        private IBindingSource _bindingSource;
         private IBindableMap _map;
         private IBindableMapUntyped _mapUntyped;
-        private Subscription _changeSub;
         private readonly Dictionary<object, Node> _rows = new();
         private bool _warnedMissingSetter;
         private bool _warnedIncompatibleItem;
 
-        public StringName Key => _key;
-
-        public override void _Ready()
+        protected override void ResolveAndApply()
         {
-            base._Ready();
-            ResolveAndApply();
-        }
-
-        public override void _EnterTree()
-        {
-            base._EnterTree();
-            if (Engine.IsEditorHint())
-                ResolveAndApply();
-        }
-
-        public override void _ExitTree()
-        {
-            Unsubscribe();
-            base._ExitTree();
-        }
-
-        private void ResolveAndApply()
-        {
-            Unsubscribe();
-            _bindingSource = FindBindingSource();
-            if (_bindingSource == null)
+            if (!TryResolveSource())
+            {
+#if DEBUG
+                Log.LogWarning($"[KeyedCollectionBinding:{GetPath()}] No IBindingSource found in parent tree. Binding is inactive.");
+#endif
                 return;
+            }
 
             if (_key == null || _key.IsEmpty)
+            {
+#if DEBUG
+                Log.LogWarning($"[KeyedCollectionBinding:{GetPath()}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
+#endif
                 return;
+            }
 
             var propertyMap = _bindingSource.GetBindings;
             if (propertyMap == null || !propertyMap.GetCollection(_key.ToString(), out var collection))
@@ -86,38 +67,14 @@ namespace cfGodotEngine.Binding
             _mapUntyped = map as IBindableMapUntyped;
             RebuildAll();
             _changeSub = _map.SubscribeChanged(OnMapChanged);
+            _resolved = true;
         }
 
-        private void Unsubscribe()
+        protected override void Unsubscribe()
         {
-            if (_changeSub != null)
-            {
-                _changeSub.Unsubscribe();
-                _changeSub = null;
-            }
+            base.Unsubscribe();
             _map = null;
             _mapUntyped = null;
-            _bindingSource = null;
-        }
-
-        public IBindingSource FindBindingSource()
-        {
-            if (_sourceOverride != null && !_sourceOverride.IsEmpty)
-            {
-                var node = GetNodeOrNull<Node>(_sourceOverride);
-                if (node is IBindingSource overrideSource)
-                    return overrideSource;
-            }
-
-            for (var x = GetParentOrNull<Node>(); x != null; x = x.GetParentOrNull<Node>())
-            {
-                if (x is IBindingSource source)
-                {
-                    return source;
-                }
-            }
-
-            return null;
         }
 
         private void OnMapChanged(MapChange change)
@@ -262,7 +219,7 @@ namespace cfGodotEngine.Binding
             };
         }
 
-        public string ValidateBinding()
+        public override string ValidateBinding()
         {
             if (_key == null || _key.IsEmpty)
                 return "Key is not set";
