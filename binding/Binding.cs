@@ -110,7 +110,9 @@ namespace cfGodotEngine.Binding
             UpdateDebugTargetPath(target);
 
             ApplyValue();
-            _changeSub = _bindingSource.GetBindings.RegisterPropertyChange(OnKeyChanged);
+            var bindingsMap = _bindingSource.GetBindings;
+            if (bindingsMap != null)
+                _changeSub = bindingsMap.RegisterPropertyChange(OnKeyChanged);
 #if DEBUG
             _debugIsSubscribed = true;
 #endif

@@ -180,9 +180,9 @@ namespace cfGodotEngine.Binding
         private void AddRow(Node container, object key, object item)
         {
             var row = _itemPrefab.Instantiate<Node>();
+            SetItemData(row, item);
             container.AddChild(row);
             _rows[key] = row;
-            SetItemData(row, item);
         }
 
         private void RemoveRow(object key)
@@ -208,6 +208,9 @@ namespace cfGodotEngine.Binding
         private void SetItemData(Node item, object data)
         {
             if (item == null)
+                return;
+
+            if (CollectionItemDelivery.TrySetSource(item, data))
                 return;
 
             if (_itemSetterMethod == null || _itemSetterMethod.IsEmpty || !item.HasMethod(_itemSetterMethod))

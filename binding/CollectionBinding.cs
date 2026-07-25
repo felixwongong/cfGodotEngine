@@ -154,9 +154,9 @@ namespace cfGodotEngine.Binding
             while (enumerator.MoveNext())
             {
                 var row = _itemPrefab.Instantiate<Node>();
+                SetItemData(row, enumerator.Current);
                 container.AddChild(row);
                 _rows.Add(row);
-                SetItemData(row, enumerator.Current);
             }
         }
 
@@ -170,10 +170,10 @@ namespace cfGodotEngine.Binding
                 return;
 
             var row = _itemPrefab.Instantiate<Node>();
+            SetItemData(row, item);
             container.AddChild(row);
             _rows.Insert(index, row);
             container.MoveChild(row, container.GetChildCount() - _rows.Count + index);
-            SetItemData(row, item);
         }
 
         private void RemoveRow(int index)
@@ -209,6 +209,9 @@ namespace cfGodotEngine.Binding
         private void SetItemData(Node item, object data)
         {
             if (item == null)
+                return;
+
+            if (CollectionItemDelivery.TrySetSource(item, data))
                 return;
 
             if (_itemSetterMethod == null || _itemSetterMethod.IsEmpty || !item.HasMethod(_itemSetterMethod))
