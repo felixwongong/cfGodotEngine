@@ -7,9 +7,9 @@ namespace cfGodotEngine.Binding
 {
     public class PropertyMapBuilder
     {
-        private readonly List<(string key, IBindable bindable)> _entries = new();
+        private readonly List<(string key, IBindableBase bindable)> _entries = new();
 
-        public PropertyMapBuilder Add(string key, IBindable bindable)
+        public PropertyMapBuilder Add(string key, IBindableBase bindable)
         {
             _entries.Add((key, bindable));
             return this;
@@ -19,13 +19,15 @@ namespace cfGodotEngine.Binding
     }
 
     /// <summary>
-    /// Aggregates <see cref="IBindable"/> entries into a single
-    /// <see cref="IPropertyMap"/>. Handles per-source batched updates
-    /// (replaces the old global <c>BindingUpdateScheduler</c>).
+    /// Aggregates <see cref="IBindableBase"/> entries into a single
+    /// <see cref="IPropertyMap"/>. Scalar entries (<see cref="IBindable"/>)
+    /// serve the Variant/object channels; collection entries
+    /// (<see cref="IBindableCollection"/>) serve the collection channel.
+    /// Handles per-source batched updates.
     /// </summary>
     public class PropertyMap : IPropertyMap, IDisposable
     {
-        private readonly Dictionary<string, IBindable> _properties;
+        private readonly Dictionary<string, IBindableBase> _properties;
         private readonly Relay<string> _keyChangedRelay;
         private readonly List<Subscription> _bindableSubs;
 
@@ -33,9 +35,9 @@ namespace cfGodotEngine.Binding
         private HashSet<string> _pending;
         private bool _disposed;
 
-        internal PropertyMap(List<(string key, IBindable bindable)> entries)
+        internal PropertyMap(List<(string key, IBindableBase bindable)> entries)
         {
-            _properties = new Dictionary<string, IBindable>(entries.Count);
+            _properties = new Dictionary<string, IBindableBase>(entries.Count);
             _keyChangedRelay = new Relay<string>(this);
             _bindableSubs = new List<Subscription>(entries.Count);
 
@@ -63,9 +65,9 @@ namespace cfGodotEngine.Binding
 
         public bool GetVariant(string key, out Variant value)
         {
-            if (_properties.TryGetValue(key, out var bindable))
+            if (_properties.TryGetValue(key, out var bindable) && bindable is IBindable scalar)
             {
-                value = bindable.GetVariant();
+                value = scalar.GetVariant();
                 return true;
             }
             value = default;
@@ -74,12 +76,23 @@ namespace cfGodotEngine.Binding
 
         public bool GetObject(string key, out object value)
         {
-            if (_properties.TryGetValue(key, out var bindable))
+            if (_properties.TryGetValue(key, out var bindable) && bindable is IBindable scalar)
             {
-                value = bindable.GetObject();
+                value = scalar.GetObject();
                 return true;
             }
             value = null;
+            return false;
+        }
+
+        public bool GetCollection(string key, out IBindableCollection collection)
+        {
+            if (_properties.TryGetValue(key, out var bindable) && bindable is IBindableCollection c)
+            {
+                collection = c;
+                return true;
+            }
+            collection = null;
             return false;
         }
 

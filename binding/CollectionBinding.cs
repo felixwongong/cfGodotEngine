@@ -1,16 +1,18 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
+using cfEngine;
 using cfEngine.Rx;
 using Godot;
 
 namespace cfGodotEngine.Binding
 {
     /// <summary>
-    /// Co-located collection binding node. Add as a child of the container node
-    /// that should display one item prefab per element from a reactive
-    /// <see cref="IEnumerable"/> key.
+    /// Co-located collection binding node for positional collections
+    /// (<see cref="IBindableList"/>). Add as a child of the container node
+    /// that should display one item prefab per element. Applies granular
+    /// per-row operations: Add inserts a row, Remove frees it, Update
+    /// re-delivers data in place, Reset rebuilds all rows.
     /// </summary>
     [Tool]
     [GlobalClass]
@@ -28,8 +30,12 @@ namespace cfGodotEngine.Binding
         [Export] private StringName _itemSetterMethod = "SetData";
 
         private IBindingSource _bindingSource;
+        private IBindableList _list;
+        private IBindableListUntyped _listUntyped;
         private Subscription _changeSub;
-        private List<object> _currentItems = new();
+        private readonly List<Node> _rows = new();
+        private bool _warnedMissingSetter;
+        private bool _warnedIncompatibleItem;
 
         public StringName Key => _key;
 
@@ -62,8 +68,27 @@ namespace cfGodotEngine.Binding
             if (_key == null || _key.IsEmpty)
                 return;
 
-            Refresh();
-            _changeSub = _bindingSource.GetBindings.RegisterPropertyChange(OnKeyChanged);
+            var map = _bindingSource.GetBindings;
+            if (map == null || !map.GetCollection(_key.ToString(), out var collection))
+            {
+#if DEBUG
+                Log.LogWarning($"[CollectionBinding:{GetPath()}] Key '{_key}' is not a collection on source '{_bindingSource.GetType().Name}'. Available: [{string.Join(", ", map?.Keys ?? Array.Empty<string>())}].");
+#endif
+                return;
+            }
+
+            if (collection is not IBindableList list)
+            {
+#if DEBUG
+                Log.LogWarning($"[CollectionBinding:{GetPath()}] Key '{_key}' on source '{_bindingSource.GetType().Name}' is not a positional collection (IBindableList). Use KeyedCollectionBinding for keyed collections.");
+#endif
+                return;
+            }
+
+            _list = list;
+            _listUntyped = list as IBindableListUntyped;
+            RebuildAll();
+            _changeSub = _list.SubscribeChanged(OnListChanged);
         }
 
         private void Unsubscribe()
@@ -73,13 +98,13 @@ namespace cfGodotEngine.Binding
                 _changeSub.Unsubscribe();
                 _changeSub = null;
             }
+            _list = null;
+            _listUntyped = null;
             _bindingSource = null;
         }
 
         public IBindingSource FindBindingSource()
         {
-            bool isEditor = Engine.IsEditorHint();
-
             if (_sourceOverride != null && !_sourceOverride.IsEmpty)
             {
                 var node = GetNodeOrNull<Node>(_sourceOverride);
@@ -98,74 +123,124 @@ namespace cfGodotEngine.Binding
             return null;
         }
 
-        private void OnKeyChanged(string changedKey)
+        private void OnListChanged(ListChange change)
         {
-            if (changedKey == _key.ToString())
-                Refresh();
+            switch (change.Kind)
+            {
+                case CollectionChangeKind.Add:
+                    InsertRow(change.Index);
+                    break;
+                case CollectionChangeKind.Remove:
+                    RemoveRow(change.Index);
+                    break;
+                case CollectionChangeKind.Update:
+                    UpdateRow(change.Index);
+                    break;
+                case CollectionChangeKind.Reset:
+                    RebuildAll();
+                    break;
+            }
         }
 
-        private void Refresh()
+        private void RebuildAll()
         {
-            if (_bindingSource == null)
-                return;
-
-            var map = _bindingSource.GetBindings;
-            if (map == null)
-                return;
-
-            if (!map.GetObject(_key.ToString(), out var obj) || obj == null)
-                return;
-
-            var collection = obj as IEnumerable;
-            if (collection == null)
-                return;
-
-            var newItems = new List<object>();
-            foreach (var item in collection)
-                newItems.Add(item);
-
-            if (SequencesEqual(_currentItems, newItems))
-                return;
-
-            ClearItems();
+            ClearRows();
 
             var container = GetParentOrNull<Node>();
-            if (container == null || _itemPrefab == null)
+            if (container == null || _itemPrefab == null || _listUntyped == null)
                 return;
 
-            foreach (var item in newItems)
+            var enumerator = _listUntyped.GetUntypedEnumerator();
+            while (enumerator.MoveNext())
             {
-                var node = _itemPrefab.Instantiate<Node>();
-                container.AddChild(node);
-                SetItemData(node, item);
+                var row = _itemPrefab.Instantiate<Node>();
+                container.AddChild(row);
+                _rows.Add(row);
+                SetItemData(row, enumerator.Current);
             }
-
-            _currentItems = newItems;
         }
 
-        private void ClearItems()
+        private void InsertRow(int index)
         {
             var container = GetParentOrNull<Node>();
-            if (container == null)
+            if (container == null || _itemPrefab == null || _listUntyped == null)
                 return;
 
-            foreach (var child in container.GetChildren())
-            {
-                if (child == this) continue;
-                child.QueueFree();
-            }
+            if (!_listUntyped.TryGetUntyped(index, out var item))
+                return;
 
-            _currentItems.Clear();
+            var row = _itemPrefab.Instantiate<Node>();
+            container.AddChild(row);
+            _rows.Insert(index, row);
+            container.MoveChild(row, container.GetChildCount() - _rows.Count + index);
+            SetItemData(row, item);
+        }
+
+        private void RemoveRow(int index)
+        {
+            if ((uint)index >= (uint)_rows.Count)
+                return;
+
+            _rows[index].QueueFree();
+            _rows.RemoveAt(index);
+        }
+
+        private void UpdateRow(int index)
+        {
+            if ((uint)index >= (uint)_rows.Count || _listUntyped == null)
+                return;
+
+            if (!_listUntyped.TryGetUntyped(index, out var item))
+                return;
+
+            SetItemData(_rows[index], item);
+        }
+
+        private void ClearRows()
+        {
+            foreach (var row in _rows)
+            {
+                if (IsInstanceValid(row))
+                    row.QueueFree();
+            }
+            _rows.Clear();
         }
 
         private void SetItemData(Node item, object data)
         {
-            if (item == null || _itemSetterMethod == null || _itemSetterMethod.IsEmpty)
+            if (item == null)
                 return;
 
-            if (item.HasMethod(_itemSetterMethod))
+            if (_itemSetterMethod == null || _itemSetterMethod.IsEmpty || !item.HasMethod(_itemSetterMethod))
             {
-                item.Call(_itemSetterMethod, ToVariant(data));
+#if DEBUG
+                if (!_warnedMissingSetter)
+                {
+                    _warnedMissingSetter = true;
+                    Log.LogWarning($"[CollectionBinding:{GetPath()}] Row '{item.GetPath()}' has no setter method '{_itemSetterMethod}'; items of key '{_key}' cannot reach their rows.");
+                }
+#endif
+                return;
+            }
+
+            if (data != null)
+            {
+                var variant = ToVariant(data);
+                if (variant.VariantType == Variant.Type.Nil)
+                {
+#if DEBUG
+                    if (!_warnedIncompatibleItem)
+                    {
+                        _warnedIncompatibleItem = true;
+                        Log.LogWarning($"[CollectionBinding:{GetPath()}] Item of type '{data.GetType().Name}' (key '{_key}') is not Variant-compatible; row '{item.GetPath()}' receives nil. Use a Variant-compatible item type, an IBindingSource item, or the future object-data path.");
+                    }
+#endif
+                }
+                item.Call(_itemSetterMethod, variant);
+            }
+            else
+            {
+                item.Call(_itemSetterMethod, default(Variant));
             }
         }
 
@@ -202,20 +277,6 @@ namespace cfGodotEngine.Binding
                 return "CollectionBinding has no parent node (container)";
 
             return string.Empty;
-        }
-
-        private static bool SequencesEqual(List<object> a, List<object> b)
-        {
-            if (a.Count != b.Count)
-                return false;
-
-            for (int i = 0; i < a.Count; i++)
-            {
-                if (!Equals(a[i], b[i]))
-                    return false;
-            }
-
-            return true;
         }
     }
 }

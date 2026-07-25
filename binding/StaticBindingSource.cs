@@ -73,6 +73,13 @@ namespace cfGodotEngine.Binding
                 return false;
             }
 
+            public bool GetCollection(string key, out IBindableCollection collection)
+            {
+                // Mock sources provide sample Variants only; no collection channel.
+                collection = null;
+                return false;
+            }
+
             public IReadOnlyList<string> Keys => _keys;
 
             public Subscription RegisterPropertyChange(Action<string> callback) => null;

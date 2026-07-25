@@ -1,26 +1,40 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using cfEngine;
 using cfEngine.Rx;
-using Godot;
 
 namespace cfGodotEngine.Binding
 {
     /// <summary>
     /// Godot-aware bindable map over a stable <see cref="RxDictionary{TKey,TValue}"/>
-    /// instance. Entries travel via <see cref="GetObject"/>, never as Variant;
-    /// <see cref="GetVariant"/> returns the entry count.
+    /// instance. Game code uses the fully-typed API; binding nodes use the
+    /// IBindableMap channel (typed TryGet/EnumerateKeys, key-only change events).
+    /// SetAll coalesces to a single Reset on the binding channel.
+    /// Note: unordered — UI needing stable order should use BindableList.
     /// </summary>
-    public class BindableMap<TKey, TValue> : IBindable, IReadOnlyDictionary<TKey, TValue>, IDisposable
+    public class BindableMap<TKey, TValue> : IBindableMap, IReadOnlyDictionary<TKey, TValue>, IDisposable, IBindableMapUntyped
     {
         private readonly RxDictionary<TKey, TValue> _dictionary = new();
+        private Relay<MapChange> _changeRelay;
+        private bool _suppressItemEvents;
+
+        public BindableMap()
+        {
+            _dictionary.Events.Subscribe(OnEntryAdded, OnEntryRemoved, OnEntryUpdated);
+        }
 
         /// <summary>Read-only face of the inner dictionary.</summary>
         public RxReadOnlyDictionary<TKey, TValue> Source => _dictionary;
 
+        /// <summary>Fully-typed granular events for game code.</summary>
         public ICollectionEvents<KeyValuePair<TKey, TValue>> CollectionEvents => _dictionary.Events;
 
         public int Count => _dictionary.Count;
+
+        public Type ItemType => typeof(TValue);
+
+        public Type KeyType => typeof(TKey);
 
         public TValue this[TKey key] => _dictionary[key];
 
@@ -37,11 +51,69 @@ namespace cfGodotEngine.Binding
 
         public void Clear() => _dictionary.Clear();
 
+        /// <summary>
+        /// Replaces all entries. Game-code subscribers see the individual
+        /// removes/adds via CollectionEvents; binding subscribers see one Reset.
+        /// </summary>
         public void SetAll(IEnumerable<KeyValuePair<TKey, TValue>> items)
         {
+            _suppressItemEvents = true;
             _dictionary.Clear();
             foreach (var (key, value) in items)
                 _dictionary.Add(key, value);
+            _suppressItemEvents = false;
+            Dispatch(new MapChange(CollectionChangeKind.Reset, null));
+        }
+
+        public Res<TV, Exception> TryGet<TK, TV>(TK key)
+        {
+            if (key is not TKey typedKey)
+                return Res.Err<TV>(new InvalidCastException($"Cannot cast key of type {typeof(TK).Name} to {typeof(TKey).Name}"));
+            if (!_dictionary.TryGetValue(typedKey, out var value))
+                return Res.Err<TV>(new KeyNotFoundException($"Key not found: {typedKey}"));
+            if (value is TV typed)
+                return Res.Ok(typed);
+            return Res.Err<TV>(new InvalidCastException($"Cannot cast value of type {typeof(TValue).Name} to {typeof(TV).Name}"));
+        }
+
+        public IEnumerable<TItem> Enumerate<TItem>()
+        {
+            if (!typeof(TItem).IsAssignableFrom(typeof(TValue)))
+            {
+                Log.LogException(new InvalidCastException(
+                    $"Cannot enumerate {typeof(TValue).Name} values as {typeof(TItem).Name}"));
+                yield break;
+            }
+
+            foreach (var value in _dictionary.Values)
+                yield return (TItem)(object)value;
+        }
+
+        public IEnumerable<TK> EnumerateKeys<TK>()
+        {
+            if (!typeof(TK).IsAssignableFrom(typeof(TKey)))
+            {
+                Log.LogException(new InvalidCastException(
+                    $"Cannot enumerate {typeof(TKey).Name} keys as {typeof(TK).Name}"));
+                yield break;
+            }
+
+            foreach (var key in _dictionary.Keys)
+                yield return (TK)(object)key;
+        }
+
+        /// <summary>Coarse any-change notification (IBindableBase), used by PropertyMap.</summary>
+        public Subscription SubscribeChanged(Action handler)
+        {
+            EnsureRelay();
+            return _changeRelay.AddListener(_ => handler());
+        }
+
+        /// <summary>Granular key-only change notification (IBindableMap).</summary>
+        public Subscription SubscribeChanged(Action<MapChange> handler)
+        {
+            EnsureRelay();
+            return _changeRelay.AddListener(handler);
         }
 
         public bool ContainsKey(TKey key) => _dictionary.ContainsKey(key);
@@ -52,12 +124,43 @@ namespace cfGodotEngine.Binding
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        public Variant GetVariant() => _dictionary.Count;
-
-        public object GetObject() => _dictionary;
-
-        public Subscription SubscribeChanged(Action handler) => _dictionary.Events.OnChange(handler);
-
         public void Dispose() => _dictionary.Dispose();
+
+        private void EnsureRelay() => _changeRelay ??= new Relay<MapChange>(this);
+
+        private void Dispatch(MapChange change) => _changeRelay?.Dispatch(change);
+
+        private void OnEntryAdded(KeyValuePair<TKey, TValue> kvp)
+        {
+            if (!_suppressItemEvents)
+                Dispatch(new MapChange(CollectionChangeKind.Add, kvp.Key));
+        }
+
+        private void OnEntryRemoved(KeyValuePair<TKey, TValue> kvp)
+        {
+            if (!_suppressItemEvents)
+                Dispatch(new MapChange(CollectionChangeKind.Remove, kvp.Key));
+        }
+
+        private void OnEntryUpdated(KeyValuePair<TKey, TValue> oldEntry, KeyValuePair<TKey, TValue> newEntry)
+        {
+            if (!_suppressItemEvents)
+                Dispatch(new MapChange(CollectionChangeKind.Update, newEntry.Key));
+        }
+
+        IEnumerator IBindableCollectionUntyped.GetUntypedEnumerator() => _dictionary.Values.GetEnumerator();
+
+        IEnumerable IBindableMapUntyped.GetUntypedKeys() => _dictionary.Keys;
+
+        bool IBindableMapUntyped.TryGetUntyped(object key, out object value)
+        {
+            if (key is TKey typedKey && _dictionary.TryGetValue(typedKey, out var v))
+            {
+                value = v;
+                return true;
+            }
+            value = null;
+            return false;
+        }
     }
 }
