@@ -18,6 +18,8 @@ namespace cfGodotEngine.Binding
         private readonly RxList<T> _list;
         private Relay<ListChange> _changeRelay;
         private bool _suppressItemEvents;
+        private Subscription _sourceSub;
+        private RxReadOnlyList<T> _ownedSource;
 
         public BindableList()
         {
@@ -43,23 +45,92 @@ namespace cfGodotEngine.Binding
 
         public T this[int index] => _list[index];
 
-        public void Add(T item) => _list.Add(item);
+        public void Add(T item)
+        {
+            DetachSource();
+            _list.Add(item);
+        }
 
-        public void Insert(int index, T item) => _list.Insert(index, item);
+        public void Insert(int index, T item)
+        {
+            DetachSource();
+            _list.Insert(index, item);
+        }
 
-        public bool Remove(T item) => _list.Remove(item);
+        public bool Remove(T item)
+        {
+            DetachSource();
+            return _list.Remove(item);
+        }
 
-        public void RemoveAt(int index) => _list.RemoveAt(index);
+        public void RemoveAt(int index)
+        {
+            DetachSource();
+            _list.RemoveAt(index);
+        }
 
-        public void Update(int index, T item) => _list.Update(index, item);
+        public void Update(int index, T item)
+        {
+            DetachSource();
+            _list.Update(index, item);
+        }
 
-        public void Clear() => _list.Clear();
+        public void Clear()
+        {
+            DetachSource();
+            _list.Clear();
+        }
 
         /// <summary>
         /// Replaces all items. Game-code subscribers see the individual
         /// removes/adds via CollectionEvents; binding subscribers see one Reset.
         /// </summary>
         public void SetAll(IEnumerable<T> items)
+        {
+            DetachSource();
+            SetAllLocal(items);
+        }
+
+        /// <summary>
+        /// Mirrors a source list: applies its current items and forwards granular
+        /// add/remove/update changes. Last-write-wins: any local mutation detaches
+        /// the source. The bindable takes ownership of <paramref name="source"/>
+        /// and disposes it on detach/<see cref="Dispose"/> (cleans up projection
+        /// chains such as selectNew results).
+        /// </summary>
+        public void SetSource(RxReadOnlyList<T> source)
+        {
+            if (source == null)
+            {
+                ClearSource();
+                return;
+            }
+
+            DetachSource(warn: false);
+            _ownedSource = source;
+            SetAllLocal(source);
+            _sourceSub = source.Events.Subscribe(
+                e => _list.Insert(e.index, e.item),
+                e => _list.RemoveAt(e.index),
+                (oldE, newE) => _list.Update(newE.index, newE.item));
+        }
+
+        /// <summary>Detaches the current source without changing the items.</summary>
+        public void ClearSource() => DetachSource(warn: false);
+
+        private void DetachSource(bool warn = true)
+        {
+            if (_sourceSub == null && _ownedSource == null)
+                return;
+            if (warn)
+                Log.LogWarning($"[BindableList<{typeof(T).Name}>] Local mutation detached the Rx source");
+            _sourceSub?.Unsubscribe();
+            _sourceSub = null;
+            _ownedSource?.Dispose();
+            _ownedSource = null;
+        }
+
+        private void SetAllLocal(IEnumerable<T> items)
         {
             _suppressItemEvents = true;
             _list.Clear();
@@ -109,7 +180,11 @@ namespace cfGodotEngine.Binding
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        public void Dispose() => _list.Dispose();
+        public void Dispose()
+        {
+            DetachSource(warn: false);
+            _list.Dispose();
+        }
 
         private void EnsureRelay() => _changeRelay ??= new Relay<ListChange>(this);
 

@@ -18,6 +18,8 @@ namespace cfGodotEngine.Binding
         private readonly RxDictionary<TKey, TValue> _dictionary = new();
         private Relay<MapChange> _changeRelay;
         private bool _suppressItemEvents;
+        private Subscription _sourceSub;
+        private RxReadOnlyDictionary<TKey, TValue> _ownedSource;
 
         public BindableMap()
         {
@@ -42,20 +44,81 @@ namespace cfGodotEngine.Binding
 
         public IEnumerable<TValue> Values => _dictionary.Values;
 
-        public void Add(TKey key, TValue value) => _dictionary.Add(key, value);
+        public void Add(TKey key, TValue value)
+        {
+            DetachSource();
+            _dictionary.Add(key, value);
+        }
 
         /// <summary>Inserts or updates the value for key, dispatching the appropriate event.</summary>
-        public void Set(TKey key, TValue value) => _dictionary.Upsert(key, value);
+        public void Set(TKey key, TValue value)
+        {
+            DetachSource();
+            _dictionary.Upsert(key, value);
+        }
 
-        public bool Remove(TKey key) => _dictionary.Remove(key);
+        public bool Remove(TKey key)
+        {
+            DetachSource();
+            return _dictionary.Remove(key);
+        }
 
-        public void Clear() => _dictionary.Clear();
+        public void Clear()
+        {
+            DetachSource();
+            _dictionary.Clear();
+        }
 
         /// <summary>
         /// Replaces all entries. Game-code subscribers see the individual
         /// removes/adds via CollectionEvents; binding subscribers see one Reset.
         /// </summary>
         public void SetAll(IEnumerable<KeyValuePair<TKey, TValue>> items)
+        {
+            DetachSource();
+            SetAllLocal(items);
+        }
+
+        /// <summary>
+        /// Mirrors a source dictionary: applies its current entries and forwards
+        /// granular add/remove/update changes. Last-write-wins: any local mutation
+        /// detaches the source. The bindable takes ownership of
+        /// <paramref name="source"/> and disposes it on detach/<see cref="Dispose"/>
+        /// (cleans up projection chains).
+        /// </summary>
+        public void SetSource(RxReadOnlyDictionary<TKey, TValue> source)
+        {
+            if (source == null)
+            {
+                ClearSource();
+                return;
+            }
+
+            DetachSource(warn: false);
+            _ownedSource = source;
+            SetAllLocal(source);
+            _sourceSub = source.Events.Subscribe(
+                kvp => _dictionary.Add(kvp.Key, kvp.Value),
+                kvp => _dictionary.Remove(kvp.Key),
+                (_, newKvp) => _dictionary.Upsert(newKvp.Key, newKvp.Value));
+        }
+
+        /// <summary>Detaches the current source without changing the entries.</summary>
+        public void ClearSource() => DetachSource(warn: false);
+
+        private void DetachSource(bool warn = true)
+        {
+            if (_sourceSub == null && _ownedSource == null)
+                return;
+            if (warn)
+                Log.LogWarning($"[BindableMap<{typeof(TKey).Name},{typeof(TValue).Name}>] Local mutation detached the Rx source");
+            _sourceSub?.Unsubscribe();
+            _sourceSub = null;
+            _ownedSource?.Dispose();
+            _ownedSource = null;
+        }
+
+        private void SetAllLocal(IEnumerable<KeyValuePair<TKey, TValue>> items)
         {
             _suppressItemEvents = true;
             _dictionary.Clear();
@@ -124,7 +187,11 @@ namespace cfGodotEngine.Binding
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        public void Dispose() => _dictionary.Dispose();
+        public void Dispose()
+        {
+            DetachSource(warn: false);
+            _dictionary.Dispose();
+        }
 
         private void EnsureRelay() => _changeRelay ??= new Relay<MapChange>(this);
 
