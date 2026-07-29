@@ -16,6 +16,7 @@ namespace cfGodotEngine.Binding
     public class BindableMap<TKey, TValue> : IBindableMap, IReadOnlyDictionary<TKey, TValue>, IDisposable, IBindableMapUntyped
     {
         private readonly RxDictionary<TKey, TValue> _dictionary = new();
+        private readonly Subscription _selfSub;
         private Relay<MapChange> _changeRelay;
         private bool _suppressItemEvents;
         private Subscription _sourceSub;
@@ -23,7 +24,9 @@ namespace cfGodotEngine.Binding
 
         public BindableMap()
         {
-            _dictionary.Events.Subscribe(OnEntryAdded, OnEntryRemoved, OnEntryUpdated);
+            // The handle MUST be retained: relay listeners are weak-referenced,
+            // so a discarded Subscription is GC-collected and updates silently stop.
+            _selfSub = _dictionary.Events.Subscribe(OnEntryAdded, OnEntryRemoved, OnEntryUpdated);
         }
 
         /// <summary>Read-only face of the inner dictionary.</summary>
@@ -190,6 +193,7 @@ namespace cfGodotEngine.Binding
         public void Dispose()
         {
             DetachSource(warn: false);
+            _selfSub.UnsubscribeIfNotNull();
             _dictionary.Dispose();
         }
 

@@ -16,6 +16,7 @@ namespace cfGodotEngine.Binding
     public class BindableList<T> : IBindableList, IReadOnlyList<T>, IDisposable, IBindableListUntyped
     {
         private readonly RxList<T> _list;
+        private readonly Subscription _selfSub;
         private Relay<ListChange> _changeRelay;
         private bool _suppressItemEvents;
         private Subscription _sourceSub;
@@ -24,7 +25,9 @@ namespace cfGodotEngine.Binding
         public BindableList()
         {
             _list = new RxList<T>();
-            _list.Events.Subscribe(OnItemAdded, OnItemRemoved, OnItemUpdated);
+            // The handle MUST be retained: relay listeners are weak-referenced,
+            // so a discarded Subscription is GC-collected and updates silently stop.
+            _selfSub = _list.Events.Subscribe(OnItemAdded, OnItemRemoved, OnItemUpdated);
         }
 
         public BindableList(IEnumerable<T> items) : this()
@@ -183,6 +186,7 @@ namespace cfGodotEngine.Binding
         public void Dispose()
         {
             DetachSource(warn: false);
+            _selfSub.UnsubscribeIfNotNull();
             _list.Dispose();
         }
 

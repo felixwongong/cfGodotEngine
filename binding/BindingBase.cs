@@ -63,6 +63,30 @@ namespace cfGodotEngine.Binding
             return null;
         }
 
+        /// <summary>
+        /// Re-resolves the source and re-applies. Required when an ancestor's
+        /// injected source instance was swapped (e.g. ISourceReceiver.SetSource
+        /// delivering a new entry object on a collection Update): existing
+        /// subscriptions still point at the old source and would go stale.
+        /// </summary>
+        public void Refresh()
+        {
+            Unsubscribe();
+            ResolveAndApply();
+        }
+
+        /// <summary>Refreshes every binding node in the subtree (depth-first).</summary>
+        public static void RefreshDescendants(Node root)
+        {
+            foreach (var child in root.GetChildren())
+            {
+                if (child is BindingBase binding)
+                    binding.Refresh();
+                else
+                    RefreshDescendants(child);
+            }
+        }
+
         protected abstract void ResolveAndApply();
 
         protected virtual void Unsubscribe()

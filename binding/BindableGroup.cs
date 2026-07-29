@@ -17,12 +17,15 @@ namespace cfGodotEngine.Binding
     public class BindableGroup<TKey, TValue> : IBindableMap, IDisposable, IBindableMapUntyped
     {
         private readonly RxGroup<TKey, TValue> _group;
+        private readonly Subscription _selfSub;
         private Relay<MapChange> _changeRelay;
 
         public BindableGroup(RxReadOnlyList<TValue> source, Func<TValue, TKey> keyFn)
         {
             _group = new RxGroup<TKey, TValue>(source, keyFn);
-            _group.Events.Subscribe(OnGroupAdded, OnGroupRemoved, null);
+            // The handle MUST be retained: relay listeners are weak-referenced,
+            // so a discarded Subscription is GC-collected and updates silently stop.
+            _selfSub = _group.Events.Subscribe(OnGroupAdded, OnGroupRemoved, null);
         }
 
         public BindableGroup(BindableList<TValue> source, Func<TValue, TKey> keyFn)
@@ -98,7 +101,11 @@ namespace cfGodotEngine.Binding
             return _changeRelay.AddListener(handler);
         }
 
-        public void Dispose() => _group.Dispose();
+        public void Dispose()
+        {
+            _selfSub.UnsubscribeIfNotNull();
+            _group.Dispose();
+        }
 
         private void EnsureRelay() => _changeRelay ??= new Relay<MapChange>(this);
 
