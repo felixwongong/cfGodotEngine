@@ -21,15 +21,15 @@ namespace cfGodotEngine.Binding
     {
         [Export] private NodePath _mockSource;
 
-        [Export] private PackedScene _itemPrefab;
+        [Export] protected PackedScene _itemPrefab;
 
-        [Export] private StringName _itemSetterMethod = "SetData";
+        [Export] protected StringName _itemSetterMethod = "SetData";
 
-        private IBindableList _list;
-        private IBindableListUntyped _listUntyped;
-        private readonly List<Node> _rows = new();
-        private bool _warnedMissingSetter;
-        private bool _warnedIncompatibleItem;
+        protected IBindableList _list;
+        private protected IBindableListUntyped _listUntyped;
+        protected readonly List<Node> _rows = new();
+        protected bool _warnedMissingSetter;
+        protected bool _warnedIncompatibleItem;
 
         public override IBindingSource FindBindingSource()
         {
@@ -92,7 +92,7 @@ namespace cfGodotEngine.Binding
             _listUntyped = null;
         }
 
-        private void OnListChanged(ListChange change)
+        protected virtual void OnListChanged(ListChange change)
         {
             switch (change.Kind)
             {
@@ -111,7 +111,7 @@ namespace cfGodotEngine.Binding
             }
         }
 
-        private void RebuildAll()
+        protected virtual void RebuildAll()
         {
             ClearRows();
 
@@ -129,7 +129,7 @@ namespace cfGodotEngine.Binding
             }
         }
 
-        private void InsertRow(int index)
+        protected virtual void InsertRow(int index)
         {
             var container = GetParentOrNull<Node>();
             if (container == null || _itemPrefab == null || _listUntyped == null)
@@ -145,7 +145,7 @@ namespace cfGodotEngine.Binding
             container.MoveChild(row, container.GetChildCount() - _rows.Count + index);
         }
 
-        private void RemoveRow(int index)
+        protected virtual void RemoveRow(int index)
         {
             if ((uint)index >= (uint)_rows.Count)
                 return;
@@ -154,7 +154,7 @@ namespace cfGodotEngine.Binding
             _rows.RemoveAt(index);
         }
 
-        private void UpdateRow(int index)
+        protected virtual void UpdateRow(int index)
         {
             if ((uint)index >= (uint)_rows.Count || _listUntyped == null)
                 return;
@@ -165,7 +165,7 @@ namespace cfGodotEngine.Binding
             SetItemData(_rows[index], item);
         }
 
-        private void ClearRows()
+        protected virtual void ClearRows()
         {
             foreach (var row in _rows)
             {
@@ -175,7 +175,7 @@ namespace cfGodotEngine.Binding
             _rows.Clear();
         }
 
-        private void SetItemData(Node item, object data)
+        protected virtual void SetItemData(Node item, object data)
         {
             if (item == null)
                 return;
