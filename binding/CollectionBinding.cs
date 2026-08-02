@@ -48,7 +48,7 @@ namespace cfGodotEngine.Binding
             if (!TryResolveSource())
             {
 #if DEBUG
-                Log.LogWarning($"[CollectionBinding:{GetPath()}] No IBindingSource found in parent tree. Binding is inactive.");
+                Log.LogWarning($"[CollectionBinding:{SafePath(this)}] No IBindingSource found in parent tree. Binding is inactive.");
 #endif
                 return;
             }
@@ -56,16 +56,22 @@ namespace cfGodotEngine.Binding
             if (_key == null || _key.IsEmpty)
             {
 #if DEBUG
-                Log.LogWarning($"[CollectionBinding:{GetPath()}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
+                Log.LogWarning($"[CollectionBinding:{SafePath(this)}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
 #endif
                 return;
             }
 
-            var map = _bindingSource.GetBindings;
-            if (map == null || !map.GetCollection(_key.ToString(), out var collection))
+            var map = GetReadyPropertyMap();
+            if (map == null)
+            {
+                _resolved = false;
+                return;
+            }
+
+            if (!map.GetCollection(_key.ToString(), out var collection))
             {
 #if DEBUG
-                Log.LogWarning($"[CollectionBinding:{GetPath()}] Key '{_key}' is not a collection on source '{_bindingSource.GetType().Name}'. Available: [{string.Join(", ", map?.Keys ?? Array.Empty<string>())}].");
+                Log.LogWarning($"[CollectionBinding:{SafePath(this)}] Key '{_key}' is not a collection on source '{_bindingSource.GetType().Name}'. Available: [{string.Join(", ", map.Keys)}].");
 #endif
                 return;
             }
@@ -73,7 +79,7 @@ namespace cfGodotEngine.Binding
             if (collection is not IBindableList list)
             {
 #if DEBUG
-                Log.LogWarning($"[CollectionBinding:{GetPath()}] Key '{_key}' on source '{_bindingSource.GetType().Name}' is not a positional collection (IBindableList). Use KeyedCollectionBinding for keyed collections.");
+                Log.LogWarning($"[CollectionBinding:{SafePath(this)}] Key '{_key}' on source '{_bindingSource.GetType().Name}' is not a positional collection (IBindableList). Use KeyedCollectionBinding for keyed collections.");
 #endif
                 return;
             }
@@ -189,7 +195,7 @@ namespace cfGodotEngine.Binding
                 if (!_warnedMissingSetter)
                 {
                     _warnedMissingSetter = true;
-                    Log.LogWarning($"[CollectionBinding:{GetPath()}] Row '{item.GetPath()}' has no setter method '{_itemSetterMethod}'; items of key '{_key}' cannot reach their rows.");
+                    Log.LogWarning($"[CollectionBinding:{SafePath(this)}] Row '{SafePath(item)}' has no setter method '{_itemSetterMethod}'; items of key '{_key}' cannot reach their rows.");
                 }
 #endif
                 return;
@@ -204,7 +210,7 @@ namespace cfGodotEngine.Binding
                     if (!_warnedIncompatibleItem)
                     {
                         _warnedIncompatibleItem = true;
-                        Log.LogWarning($"[CollectionBinding:{GetPath()}] Item of type '{data.GetType().Name}' (key '{_key}') is not Variant-compatible; row '{item.GetPath()}' receives nil. Use a Variant-compatible item type, an IBindingSource item, or the future object-data path.");
+                        Log.LogWarning($"[CollectionBinding:{SafePath(this)}] Item of type '{data.GetType().Name}' (key '{_key}') is not Variant-compatible; row '{SafePath(item)}' receives nil. Use a Variant-compatible item type, an IBindingSource item, or the future object-data path.");
                     }
 #endif
                 }

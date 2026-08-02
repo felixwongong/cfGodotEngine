@@ -108,5 +108,31 @@ namespace cfGodotEngine.Binding
         }
 
         public abstract string ValidateBinding();
+
+        /// <summary>
+        /// Binding rows can receive their source before CollectionBinding adds
+        /// them to the scene tree. Godot's GetPath() is invalid in that window,
+        /// so diagnostics must use a detached-safe fallback.
+        /// </summary>
+        protected string SafePath(Node node = null)
+        {
+            if (node == null)
+                return "<null>";
+
+            return node.IsInsideTree()
+                ? node.GetPath().ToString()
+                : $"<detached:{node.Name}>";
+        }
+
+        /// <summary>
+        /// Returns the resolved source's property map, or null when the source
+        /// is not ready yet (row entered the tree before item-source delivery).
+        /// A null result means "pending": leave the binding unresolved so a
+        /// later SetSource-driven Refresh retries; do not warn.
+        /// </summary>
+        protected IPropertyMap GetReadyPropertyMap()
+        {
+            return _bindingSource?.GetBindings;
+        }
     }
 }

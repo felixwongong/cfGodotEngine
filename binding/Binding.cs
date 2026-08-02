@@ -41,7 +41,7 @@ namespace cfGodotEngine.Binding
             return new Binding { _key = key, _applyTo = applyTo };
         }
 
-        private string XPath => GetPath();
+        private string XPath => SafePath(this);
 
 #if DEBUG
         public override void _ValidateProperty(Godot.Collections.Dictionary property)
@@ -80,10 +80,18 @@ namespace cfGodotEngine.Binding
             var target = GetParentOrNull<Node>();
             UpdateDebugTargetPath(target);
 
+            var bindingsMap = GetReadyPropertyMap();
+            if (bindingsMap == null)
+            {
+#if DEBUG
+                UpdateDebugState(null, "Pending PropertyMap", _bindingSource.GetType().Name, false);
+#endif
+                _resolved = false;
+                return;
+            }
+
             ApplyValue();
-            var bindingsMap = _bindingSource.GetBindings;
-            if (bindingsMap != null)
-                _changeSub = bindingsMap.RegisterPropertyChange(OnKeyChanged);
+            _changeSub = bindingsMap.RegisterPropertyChange(OnKeyChanged);
 #if DEBUG
             _debugIsSubscribed = true;
 #endif
@@ -143,7 +151,7 @@ namespace cfGodotEngine.Binding
 #if DEBUG
             UpdateDebugState(value.ToString(), "", _bindingSource?.GetType().Name, _debugIsSubscribed);
 #endif
-            BindingDebug.LogVerbose($"[Binding:{XPath}] Apply key '{_key}' value '{value.VariantType}:{value}' to target '{target.GetPath()}'.");
+            BindingDebug.LogVerbose($"[Binding:{XPath}] Apply key '{_key}' value '{value.VariantType}:{value}' to target '{SafePath(target)}'.");
 
             try
             {
@@ -180,12 +188,12 @@ namespace cfGodotEngine.Binding
                 if (target.HasMethod(_applyTo))
                 {
                     target.Call(_applyTo, value);
-                    BindingDebug.LogVerbose($"[Binding:{XPath}] Call method '{_applyTo}' on '{target.GetPath()}'.");
+                    BindingDebug.LogVerbose($"[Binding:{XPath}] Call method '{_applyTo}' on '{SafePath(target)}'.");
                 }
                 else
                 {
                     target.Set(_applyTo, value);
-                    BindingDebug.LogVerbose($"[Binding:{XPath}] Set property '{_applyTo}' on '{target.GetPath()}'.");
+                    BindingDebug.LogVerbose($"[Binding:{XPath}] Set property '{_applyTo}' on '{SafePath(target)}'.");
                 }
             }
             catch (Exception ex)
@@ -207,7 +215,7 @@ namespace cfGodotEngine.Binding
         [Conditional("DEBUG")]
         private void UpdateDebugTargetPath(Node target)
         {
-            _debugTargetPath = target?.GetPath() ?? "";
+            _debugTargetPath = SafePath(target);
         }
 #endif
 
