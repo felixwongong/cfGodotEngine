@@ -167,7 +167,7 @@ namespace cfGodotEngine.Binding
             container.MoveChild(row, GetIndex());
 
 #if DEBUG
-            Log.LogWarning($"[StaticCollectionBinding:{SafePath(this)}] Spawned additional row '{row.Name}' for collection '{_key}'.");
+                Log.LogDebug($"[StaticCollectionBinding:{SafePath(this)}] Spawned additional row '{row.Name}' for collection '{_key}'.");
 #endif
             return row;
         }
@@ -180,7 +180,7 @@ namespace cfGodotEngine.Binding
             if (IsInstanceValid(row))
             {
 #if DEBUG
-                Log.LogWarning($"[StaticCollectionBinding:{SafePath(this)}] Removed {(inline ? "inline" : "spawned")} row '{row.Name}' for collection '{_key}'.");
+                    Log.LogDebug($"[StaticCollectionBinding:{SafePath(this)}] Removed {(inline ? "inline" : "spawned")} row '{row.Name}' for collection '{_key}'.");
 #endif
                 row.QueueFree();
             }
