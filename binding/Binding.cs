@@ -57,38 +57,8 @@ namespace cfGodotEngine.Binding
 
         protected override void ResolveAndApply()
         {
-            if (!TryResolveSource())
-            {
-#if DEBUG
-                Log.LogWarning($"[Binding:{XPath}] No IBindingSource found in parent tree. Binding is inactive.");
-                UpdateDebugState(null, "No source", null, false);
-#endif
+            if (!TryResolveKey("Binding", out var bindingsMap))
                 return;
-            }
-
-            if (_key == null || _key.IsEmpty)
-            {
-#if DEBUG
-                Log.LogWarning($"[Binding:{XPath}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
-                UpdateDebugState(null, "Key empty", _bindingSource.GetType().Name, false);
-#endif
-                return;
-            }
-
-            BindingDebug.LogVerbose($"[Binding:{XPath}] Resolved source '{_bindingSource.GetType().Name}' for key '{_key}'.");
-
-            var target = GetParentOrNull<Node>();
-            UpdateDebugTargetPath(target);
-
-            var bindingsMap = GetReadyPropertyMap();
-            if (bindingsMap == null)
-            {
-#if DEBUG
-                UpdateDebugState(null, "Pending PropertyMap", _bindingSource.GetType().Name, false);
-#endif
-                _resolved = false;
-                return;
-            }
 
             ApplyValue();
             _changeSub = bindingsMap.RegisterPropertyChange(OnKeyChanged);
@@ -98,6 +68,30 @@ namespace cfGodotEngine.Binding
             _resolved = true;
 
             BindingDebug.LogVerbose($"[Binding:{XPath}] Subscribed to property change for key '{_key}'.");
+        }
+
+        protected override void OnKeyResolved()
+        {
+            BindingDebug.LogVerbose($"[Binding:{XPath}] Resolved source '{_bindingSource.GetType().Name}' for key '{_key}'.");
+            UpdateDebugTargetPath(GetParentOrNull<Node>());
+        }
+
+        protected override void OnResolveKeyFailed(ResolveKeyStatus status)
+        {
+#if DEBUG
+            switch (status)
+            {
+                case ResolveKeyStatus.NoSource:
+                    UpdateDebugState(null, "No source", null, false);
+                    break;
+                case ResolveKeyStatus.KeyEmpty:
+                    UpdateDebugState(null, "Key empty", _bindingSource.GetType().Name, false);
+                    break;
+                case ResolveKeyStatus.PendingMap:
+                    UpdateDebugState(null, "Pending PropertyMap", _bindingSource.GetType().Name, false);
+                    break;
+            }
+#endif
         }
 
         protected override void Unsubscribe()

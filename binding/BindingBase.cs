@@ -134,5 +134,54 @@ namespace cfGodotEngine.Binding
         {
             return _bindingSource?.GetBindings;
         }
+
+        protected enum ResolveKeyStatus { NoSource, KeyEmpty, PendingMap }
+
+        /// <summary>
+        /// Shared ResolveAndApply prelude: resolve source → key-empty check →
+        /// pending-PropertyMap check. Warnings are byte-identical to the former
+        /// per-class copies; logTag is caller-supplied so subclasses inheriting a
+        /// base's logic keep the base's log tag. A null map is "pending": sets
+        /// _resolved = false and returns false with no warning.
+        /// </summary>
+        protected bool TryResolveKey(string logTag, out IPropertyMap map)
+        {
+            map = null;
+
+            if (!TryResolveSource())
+            {
+#if DEBUG
+                Log.LogWarning($"[{logTag}:{SafePath(this)}] No IBindingSource found in parent tree. Binding is inactive.");
+#endif
+                OnResolveKeyFailed(ResolveKeyStatus.NoSource);
+                return false;
+            }
+
+            if (_key == null || _key.IsEmpty)
+            {
+#if DEBUG
+                Log.LogWarning($"[{logTag}:{SafePath(this)}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
+#endif
+                OnResolveKeyFailed(ResolveKeyStatus.KeyEmpty);
+                return false;
+            }
+
+            OnKeyResolved();
+
+            map = GetReadyPropertyMap();
+            if (map == null)
+            {
+                OnResolveKeyFailed(ResolveKeyStatus.PendingMap);
+                _resolved = false;
+                return false;
+            }
+
+            return true;
+        }
+
+        protected virtual void OnResolveKeyFailed(ResolveKeyStatus status) { }
+
+        /// <summary>Called after source+key resolve, before the PropertyMap fetch.</summary>
+        protected virtual void OnKeyResolved() { }
     }
 }

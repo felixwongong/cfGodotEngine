@@ -30,28 +30,8 @@ namespace cfGodotEngine.Binding
 
         protected override void ResolveAndApply()
         {
-            if (!TryResolveSource())
-            {
-#if DEBUG
-                Log.LogWarning($"[KeyedCollectionBinding:{SafePath(this)}] No IBindingSource found in parent tree. Binding is inactive.");
-#endif
+            if (!TryResolveKey("KeyedCollectionBinding", out var propertyMap))
                 return;
-            }
-
-            if (_key == null || _key.IsEmpty)
-            {
-#if DEBUG
-                Log.LogWarning($"[KeyedCollectionBinding:{SafePath(this)}] Key is empty. Source '{_bindingSource.GetType().Name}' was resolved but no key was assigned.");
-#endif
-                return;
-            }
-
-            var propertyMap = GetReadyPropertyMap();
-            if (propertyMap == null)
-            {
-                _resolved = false;
-                return;
-            }
 
             if (!propertyMap.GetCollection(_key.ToString(), out var collection))
             {
@@ -170,29 +150,19 @@ namespace cfGodotEngine.Binding
 
         private void SetItemData(Node item, object data)
         {
-            if (item == null)
-                return;
-
-            if (CollectionItemDelivery.TrySetSource(item, data))
-                return;
-
-            if (_itemSetterMethod == null || _itemSetterMethod.IsEmpty || !item.HasMethod(_itemSetterMethod))
+            var outcome = CollectionItemDelivery.Deliver(item, data, _itemSetterMethod);
+            switch (outcome)
             {
+                case CollectionItemDelivery.ItemDeliveryOutcome.MissingSetter:
 #if DEBUG
-                if (!_warnedMissingSetter)
-                {
-                    _warnedMissingSetter = true;
-                    Log.LogWarning($"[KeyedCollectionBinding:{SafePath(this)}] Row '{SafePath(item)}' has no setter method '{_itemSetterMethod}'; items of key '{_key}' cannot reach their rows.");
-                }
+                    if (!_warnedMissingSetter)
+                    {
+                        _warnedMissingSetter = true;
+                        Log.LogWarning($"[KeyedCollectionBinding:{SafePath(this)}] Row '{SafePath(item)}' has no setter method '{_itemSetterMethod}'; items of key '{_key}' cannot reach their rows.");
+                    }
 #endif
-                return;
-            }
-
-            if (data != null)
-            {
-                var variant = ToVariant(data);
-                if (variant.VariantType == Variant.Type.Nil)
-                {
+                    break;
+                case CollectionItemDelivery.ItemDeliveryOutcome.SetterCalledWithNil:
 #if DEBUG
                     if (!_warnedIncompatibleItem)
                     {
@@ -200,29 +170,8 @@ namespace cfGodotEngine.Binding
                         Log.LogWarning($"[KeyedCollectionBinding:{SafePath(this)}] Item of type '{data.GetType().Name}' (key '{_key}') is not Variant-compatible; row '{SafePath(item)}' receives nil.");
                     }
 #endif
-                }
-                item.Call(_itemSetterMethod, variant);
+                    break;
             }
-            else
-            {
-                item.Call(_itemSetterMethod, default(Variant));
-            }
-        }
-
-        private static Variant ToVariant(object value)
-        {
-            return value switch
-            {
-                null => default(Variant),
-                int i => i,
-                float f => f,
-                bool b => b,
-                string s => s,
-                double d => d,
-                long l => l,
-                GodotObject g => g,
-                _ => default(Variant)
-            };
         }
 
         public override string ValidateBinding()
