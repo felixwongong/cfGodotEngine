@@ -73,7 +73,9 @@ namespace cfGodotEngine.Binding
         protected override void OnKeyResolved()
         {
             BindingDebug.LogVerbose($"[Binding:{XPath}] Resolved source '{_bindingSource.GetType().Name}' for key '{_key}'.");
+#if DEBUG
             UpdateDebugTargetPath(GetParentOrNull<Node>());
+#endif
         }
 
         protected override void OnResolveKeyFailed(ResolveKeyStatus status)
@@ -168,7 +170,9 @@ namespace cfGodotEngine.Binding
             catch (Exception ex)
             {
                 Log.LogException(ex, $"[Binding:{XPath}] Format/converter threw for key '{_key}'. Subsequent bindings in this source are NOT affected.");
+#if DEBUG
                 UpdateDebugState(value.ToString(), "Format/converter threw: " + ex.Message, _bindingSource?.GetType().Name, _debugIsSubscribed);
+#endif
                 return;
             }
 
@@ -192,7 +196,10 @@ namespace cfGodotEngine.Binding
             }
             catch (Exception ex)
             {
+#if DEBUG
                 UpdateDebugState(value.ToString(), $"Apply To '{_applyTo}' threw: {ex.Message}", _bindingSource?.GetType().Name, _debugIsSubscribed);
+#endif
+                _ = ex;
             }
         }
 
