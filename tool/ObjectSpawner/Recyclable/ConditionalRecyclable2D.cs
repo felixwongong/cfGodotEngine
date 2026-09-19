@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using cfEngine.Pooling;
+using cfEngine.Rx;
 using cfEngine.Util;
 using Godot;
 
@@ -11,6 +12,7 @@ namespace cfGodotEngine.Tool;
 public partial class ConditionalRecyclable2D: SimpleRecyclable2D
 {
     [Export] private ConditionNode _condition;
+    private Subscription _conditionFulfilledSub;
 
 #if TOOLS
     public override string[] _GetConfigurationWarnings()
@@ -30,13 +32,14 @@ public partial class ConditionalRecyclable2D: SimpleRecyclable2D
     public override void _EnterTree()
     {
         base._EnterTree();
-        _condition.OnFulfilled.AddListener(OnConditionFulfilled);
+        _conditionFulfilledSub = _condition.OnFulfilled.AddListener(OnConditionFulfilled);
     }
 
     public override void _ExitTree()
     {
         base._ExitTree();
-        _condition.OnFulfilled.RemoveListener(OnConditionFulfilled);
+        _conditionFulfilledSub.UnsubscribeIfNotNull();
+        _conditionFulfilledSub = null;
     }
 
     private void OnConditionFulfilled()

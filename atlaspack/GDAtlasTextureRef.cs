@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using cfEngine.Rx;
 using Godot;
 
@@ -9,14 +10,27 @@ namespace cfGodotEngine.Asset;
 public partial class GDAtlasTextureRef: Resource
 {
     private Relay<AtlasTexture> _onAtlasTextureUpdated;
+    private readonly Dictionary<Action<AtlasTexture>, Subscription> _listenerSubscriptions = new();
+
     public event Action<AtlasTexture> OnAtlasTextureUpdated
     {
         add
         {
             _onAtlasTextureUpdated ??= new Relay<AtlasTexture>(this);
-            _onAtlasTextureUpdated.AddListener(value);
+            var subscription = _onAtlasTextureUpdated.AddListener(value);
+            if (subscription != null) // null = duplicate listener (AddListener already logged an error); keep the live entry
+            {
+                _listenerSubscriptions[value] = subscription;
+            }
         }
-        remove => _onAtlasTextureUpdated?.RemoveListener(value);
+        remove
+        {
+            if (_listenerSubscriptions.TryGetValue(value, out var subscription))
+            {
+                _listenerSubscriptions.Remove(value);
+                subscription.Unsubscribe();
+            }
+        }
     }
 
     [Export]
