@@ -1,3 +1,5 @@
+#if TOOLS
+
 using System;
 using System.Linq;
 using cfGodotEngine.UI;
@@ -68,3 +70,5 @@ namespace cfGodotEngine.Binding
         }
     }
 }
+
+#endif
