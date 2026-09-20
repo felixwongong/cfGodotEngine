@@ -5,6 +5,7 @@ namespace cfGodotEngine.Binding;
 /// <summary>
 /// Maps an input value to a <see cref="Resource"/> using a dictionary.
 /// </summary>
+[Tool]
 [GlobalClass]
 public partial class ResourceMapConverter : BindingConverter
 {
