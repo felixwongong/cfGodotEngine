@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using cfEngine;
 using Godot;
 
@@ -25,7 +24,7 @@ public class GodotLogger: ILogger
 
     public void Asset(bool condition, object context = null)
     {
-        Debug.Assert(condition);
+        global::System.Diagnostics.Debug.Assert(condition);
     }
 
     public void LogWarning(string message, object context = null)
