@@ -127,34 +127,71 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
         }
     }
 
+    /// <summary>
+    /// Synchronously detaches the currently attached Single-mode scene, releases the
+    /// <see cref="SceneTree.CurrentScene"/> reference, clears tracked-scene bookkeeping, and queues
+    /// the node for deferred destruction. Null or already-invalid current scenes are a no-op for
+    /// that node. Does not cancel, clear, or await outstanding <see cref="LoadSceneAsync"/> work.
+    /// Main-thread only.
+    /// </summary>
+    public void UnloadCurrent()
+    {
+        var sceneTree = GetSceneTree();
+        var currentScene = sceneTree.CurrentScene;
+        var hasCurrent = GodotObject.IsInstanceValid(currentScene);
+
+        // Release ownership before detaching: the reference must be cleared even when the node is
+        // null/invalid, and a stale node must never be dereferenced for its name or parent.
+        sceneTree.CurrentScene = null;
+
+        // Clean up tracked non-current scenes using the existing lookup/logging convention. The
+        // overlap guard compares the resolved node against the snapshotted current node by
+        // reference identity (plan §Step 3), not by name, so a reparented or duplicate-named
+        // tracked node is never evicted while it is still the current scene.
+        foreach (var sceneName in activeSceneSet)
+        {
+            if (!TryGetSceneNode(sceneName, out var sceneNode))
+            {
+                logger.LogException(new KeyNotFoundException($"Scene node not found while removing: {sceneName}"));
+                continue;
+            }
+
+            if (hasCurrent && sceneNode == currentScene)
+                continue;
+
+            if (!GodotObject.IsInstanceValid(sceneNode) || sceneNode.IsQueuedForDeletion())
+                continue;
+
+            sceneTree.Root.RemoveChild(sceneNode);
+            sceneNode.QueueFree();
+        }
+
+        activeSceneSet.Clear();
+
+        if (!hasCurrent)
+            return;
+
+        // Detach through the node's actual parent (when present) and only queue it if it is not
+        // already queued, so repeated unload calls never free the same scene twice.
+        var parent = currentScene.GetParent();
+        if (parent != null)
+            parent.RemoveChild(currentScene);
+
+        if (!currentScene.IsQueuedForDeletion())
+            currentScene.QueueFree();
+    }
+
     private Node ShowScene(PackedScene newScene, LoadSceneMode mode)
     {
         switch (mode)
         {
             case LoadSceneMode.Single:
             {
-                var sceneTree = GetSceneTree();
-                var currentScene = sceneTree.GetCurrentScene();
-                foreach (var sceneName in activeSceneSet)
-                {
-                    if(sceneName.Equals(currentScene.GetName())) 
-                        continue;
-                    if (!TryGetSceneNode(sceneName, out var sceneNode))
-                    {
-                        logger.LogException(new KeyNotFoundException($"Scene node not found while removing: {sceneName}"));
-                        continue;
-                    }
-                    
-                    sceneTree.Root.RemoveChild(sceneNode);
-                    sceneNode.QueueFree();
-                }
-                
-                activeSceneSet.Clear();
-                sceneTree.Root.RemoveChild(currentScene);
-                currentScene.QueueFree();
-                
-                return AddSceneToRoot(newScene);
-                break;
+                UnloadCurrent();
+
+                var sceneNode = AddSceneToRoot(newScene);
+                GetSceneTree().CurrentScene = sceneNode;
+                return sceneNode;
             }
             case LoadSceneMode.Additive:
             {

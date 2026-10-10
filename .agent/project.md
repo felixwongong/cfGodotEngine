@@ -32,4 +32,25 @@ CatSweeper references this framework for:
 - Settings and Google Sheets helpers.
 - Scene management helpers.
 
+### Scene management contract
+
+`ISceneManager<TScene>` (`scene/ISceneManager.cs`, implemented by `scene/GodotSceneManager.cs`)
+owns Single/Additive scene loading on the Godot main thread:
+
+- `LoadScene(key, LoadSceneMode.Single)` evicts the previous current scene, attaches the new scene
+  under `SceneTree.Root`, and assigns it as `SceneTree.CurrentScene`. Additive loads attach under
+  `Root` only and never touch `CurrentScene`.
+- `UnloadCurrent()` synchronously detaches the current Single scene (if any), releases
+  `SceneTree.CurrentScene`, clears tracked-scene bookkeeping, and queues the node for **deferred**
+  destruction with `QueueFree()`. Return means the scene is *detached*, not destroyed — Godot frees
+  it later. No current scene is a safe no-op, and repeated calls never free the same scene twice.
+  Persistent root children (e.g. `UIRoot` and registered services) are never bulk-cleared; only the
+  current scene and tracked scenes are evicted.
+- Eviction does **not** cancel, clear, or await in-flight `LoadSceneAsync` / preload work, and it
+  cannot evict untracked additive scenes (`activeSceneSet` is not populated today). Callers needing
+  a stable detached state must let outstanding loads settle first; an unsettled load may still
+  attach a scene afterwards.
+- All calls must run on the Godot main thread. Detachment runs immediately and can trigger exit
+  callbacks even though destruction is deferred.
+
 See CatSweeper's `.agent/systems/subtrees.md` for the subtree workflow.
