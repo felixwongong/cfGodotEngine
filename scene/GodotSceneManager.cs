@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using cfEngine;
 using cfGodotEngine.Core;
@@ -89,6 +90,8 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
 
     public Node LoadScene(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single)
     {
+        EnsureSceneMainThread();
+
         if (preloadTasks.TryGetValue(sceneKey, out var t))
         {
             var task = t.Task;
@@ -136,6 +139,8 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
     /// </summary>
     public void UnloadCurrent()
     {
+        EnsureSceneMainThread();
+
         var sceneTree = GetSceneTree();
         var currentScene = sceneTree.CurrentScene;
         var hasCurrent = GodotObject.IsInstanceValid(currentScene);
@@ -183,6 +188,8 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
 
     private Node ShowScene(PackedScene newScene, LoadSceneMode mode)
     {
+        EnsureSceneMainThread();
+
         switch (mode)
         {
             case LoadSceneMode.Single:
@@ -213,6 +220,12 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
     public Task<Node> LoadSceneAsync(string sceneKey, LoadSceneMode mode = LoadSceneMode.Single,
         IProgress<float> progress = null)
     {
+        // Reject wrong-thread entry before touching any cache/accounting state, then capture the
+        // main-thread synchronization context so both attachment continuations run on it. A missing
+        // context (e.g. a foreign thread) throws here rather than falling back to a worker.
+        EnsureSceneMainThread();
+        var sceneScheduler = TaskScheduler.FromCurrentSynchronizationContext();
+
         var m = mode;
         {
             if (preloadTasks.TryGetValue(sceneKey, out var taskSource))
@@ -224,7 +237,7 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
                     if (result.IsFaulted)
                         Log.LogException(result.Exception);
                     return null;
-                });
+                }, CancellationToken.None, TaskContinuationOptions.None, sceneScheduler);
         }
 
         {
@@ -236,7 +249,7 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
                 if (result.IsFaulted)
                     Log.LogException(result.Exception);
                 return null;
-            });
+            }, CancellationToken.None, TaskContinuationOptions.None, sceneScheduler);
         
             preloadTasks[sceneKey] = taskSource;
 
@@ -281,5 +294,23 @@ public partial class GodotSceneManager: Node, ISceneManager<Node>
     private SceneTree GetSceneTree()
     {
         return NodeUtil.GetSceneTree();
+    }
+
+    /// <summary>
+    /// Fail-fast precondition for every tree-mutating scene entry point. Godot only permits
+    /// <c>AddChild</c>/<c>RemoveChild</c> and <see cref="SceneTree.CurrentScene"/> assignment from
+    /// its main thread; a wrong-thread caller is rejected here, before any cache/accounting access,
+    /// rather than silently producing an orphaned scene. Engine-free code paths are unaffected.
+    /// </summary>
+    private static void EnsureSceneMainThread()
+    {
+        var callerThreadId = Godot.OS.GetThreadCallerId();
+        var mainThreadId = Godot.OS.GetMainThreadId();
+        if (callerThreadId != mainThreadId)
+        {
+            throw new InvalidOperationException(
+                $"GodotSceneManager scene operations must run on the Godot main thread " +
+                $"(caller thread id {callerThreadId}, main thread id {mainThreadId}).");
+        }
     }
 }

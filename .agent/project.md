@@ -40,6 +40,12 @@ owns Single/Additive scene loading on the Godot main thread:
 - `LoadScene(key, LoadSceneMode.Single)` evicts the previous current scene, attaches the new scene
   under `SceneTree.Root`, and assigns it as `SceneTree.CurrentScene`. Additive loads attach under
   `Root` only and never touch `CurrentScene`.
+- `LoadSceneAsync(key, mode, progress)` returns a task that completes **only after** the scene has
+  been instantiated and attached — a successful task means an attached scene, not a pending load.
+  Entry requires the Godot main thread; the caller's current synchronization context is captured at
+  entry and both the cached and cold attachment continuations are scheduled on it, so attachment
+  always runs on the Godot main thread regardless of which thread/branch completes the underlying
+  `PackedScene` load.
 - `UnloadCurrent()` synchronously detaches the current Single scene (if any), releases
   `SceneTree.CurrentScene`, clears tracked-scene bookkeeping, and queues the node for **deferred**
   destruction with `QueueFree()`. Return means the scene is *detached*, not destroyed — Godot frees
@@ -50,7 +56,38 @@ owns Single/Additive scene loading on the Godot main thread:
   cannot evict untracked additive scenes (`activeSceneSet` is not populated today). Callers needing
   a stable detached state must let outstanding loads settle first; an unsettled load may still
   attach a scene afterwards.
-- All calls must run on the Godot main thread. Detachment runs immediately and can trigger exit
-  callbacks even though destruction is deferred.
+- All calls must run on the Godot main thread. Every tree-mutating entry point (`LoadScene`,
+  `LoadSceneAsync`, `UnloadCurrent`, `ShowScene`) fail-fast-rejects a wrong-thread caller with an
+  `InvalidOperationException` **before** any cache/accounting or tree access; `LoadSceneAsync` throws
+  synchronously (it is not `async`) and, on entry, rejects a missing synchronization context rather
+  than falling back to a worker thread. Detachment runs immediately and can trigger exit callbacks
+  even though destruction is deferred.
+
+### UI panel visibility contract
+
+`UIPanel` (`ui/UIPanel.cs`, extending `ui/UIComponent.cs`) is the screen abstraction and **owns the
+visibility of the `CanvasLayer` content canvases that belong to it**:
+
+- A screen's content normally lives under a child `CanvasLayer` (`Layer`). A `CanvasLayer` is a
+  `Node`, not a `CanvasItem`, so hiding the panel's root `Control` does not suppress that separate
+  canvas — the framework therefore synchronizes every panel-owned descendant `CanvasLayer` from the
+  panel's **effective** visibility via `_Notification(NotificationVisibilityChanged)`. `Show()`/`Hide()`
+  remain plain base calls; the notification path also covers direct `Visible` assignment and calls
+  made through a `Control` reference. This is what stops a "hidden" screen from continuing to render
+  (registry defect `ui-panel-canvaslayer-leak`).
+- Effective visibility is the panel's own `Visible` combined with every ancestor `CanvasItem.Visible`
+  up to the tree root (the raw node parent chain is walked because a `CanvasLayer` boundary severs
+  native `is_visible_in_tree()` propagation). The gate is recomputed on each sync from panel/ancestor
+  state — never from a layer's previously forced value — so `Hide()` cannot latch a layer false.
+- Traversal is recursive and includes internal children, covering multiple sibling layers and layers
+  nested below other layers or ordinary `Node`s. A nested `UIPanel` keeps ownership of its own
+  canvases: an enclosing panel hands it the enclosing gate only, and the nested panel's own hidden
+  flag wins. Descendant `Control.Visible` flags, binding sources, and scene ownership are left
+  untouched, so independently hidden widgets stay hidden.
+- Lifecycle: the panel syncs on `_EnterTree`/`_Ready` (so a panel restored or re-entered reconciles
+  immediately), subscribes to ancestor `CanvasItem.VisibilityChanged` and to `SceneTree.NodeAdded`/
+  `SceneTree.TreeChanged` while in-tree (reconciling dynamically added layers and reparenting before
+  the next render), guards reentrancy with a private flag, and unsubscribes both ancestor and tree
+  signals in `_ExitTree` with no retained `SceneTree` reference. No per-frame scanning is used.
 
 See CatSweeper's `.agent/systems/subtrees.md` for the subtree workflow.
