@@ -89,7 +89,7 @@ public partial class CommandConsoleOverlay : CanvasLayer
         margin.AddChild(vbox);
 
         var header = new HBoxContainer();
-        header.AddChild(new Label { Text = "LOG" });
+        header.AddChild(new Label { Text = "CONSOLE" });
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
 
         var copy = new Button { Text = "Copy" };
@@ -123,7 +123,7 @@ public partial class CommandConsoleOverlay : CanvasLayer
     {
         _logButton = new Button
         {
-            Text = "LOG",
+            Text = "DEBUG",
             FocusMode = Control.FocusModeEnum.None,
             CustomMinimumSize = new Vector2(120, 72),
             Position = new Vector2(900, 160),
