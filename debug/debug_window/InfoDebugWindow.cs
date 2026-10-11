@@ -21,8 +21,10 @@ namespace cfGodotEngine.Debug;
 /// Content: one tab per <see cref="InfoLayer.InfoMap"/> entry (name derived from the manager type),
 /// a reflection table of the manager's rows (public readable instance properties, ordinal name order,
 /// capped at <see cref="RowCap"/>), and a read-only JSON detail pane for the tapped row. Layout is
-/// responsive against the current viewport visible-rect width. The InfoLayer is re-resolved on every
-/// build and refresh and reads currently-loaded runtime objects only (no pipeline/network calls).
+/// orientation-aware against the current viewport visible-rect <em>size</em>: a portrait viewport
+/// (height &gt; width) stacks the table above the scrollable JSON detail, while a landscape viewport
+/// keeps the existing narrow replace / wide side-by-side behaviour. The InfoLayer is re-resolved on
+/// every build and refresh and reads currently-loaded runtime objects only (no pipeline/network calls).
 /// </summary>
 public static class InfoDebugWindow
 {
@@ -160,6 +162,7 @@ public static class InfoDebugWindow
         private readonly JsonSerializerOptions _jsonOptions;
 
         private readonly VBoxContainer _column;
+        private readonly BoxContainer _body;
         private readonly Label _status;
         private readonly Button _refreshButton;
         private readonly TabContainer _tabContainer;
@@ -219,14 +222,16 @@ public static class InfoDebugWindow
             _refreshButton.Pressed += Refresh;
             toolbar.AddChild(_refreshButton);
 
-            // Body: table tabs and the JSON detail pane, split side-by-side when wide.
-            var body = new HBoxContainer
+            // Body: table tabs and the JSON detail pane, one orientation-switchable container. Vertical
+            // in portrait (table above detail); horizontal otherwise (side-by-side when wide).
+            _body = new BoxContainer
             {
+                Vertical = false,
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
-            body.AddThemeConstantOverride("separation", 8);
-            _column.AddChild(body);
+            _body.AddThemeConstantOverride("separation", 8);
+            _column.AddChild(_body);
 
             _tabContainer = new TabContainer
             {
@@ -239,7 +244,7 @@ public static class InfoDebugWindow
             tabBar.ClipTabs = true;
             tabBar.MaxTabWidth = 150;
             _tabContainer.TabChanged += OnTabChanged;
-            body.AddChild(_tabContainer);
+            _body.AddChild(_tabContainer);
 
             _detailPane = new VBoxContainer
             {
@@ -249,7 +254,7 @@ public static class InfoDebugWindow
                 Visible = false
             };
             _detailPane.AddThemeConstantOverride("separation", 6);
-            body.AddChild(_detailPane);
+            _body.AddChild(_detailPane);
 
             _backButton = new Button
             {
@@ -280,7 +285,7 @@ public static class InfoDebugWindow
             Root.TreeExiting += OnTreeExiting;
 
             Refresh();
-            ApplyResponsive(0f);
+            ApplyResponsive(Vector2.Zero);
         }
 
         public Control Root { get; }
@@ -293,7 +298,7 @@ public static class InfoDebugWindow
             if (_viewport != null)
                 _viewport.SizeChanged += OnViewportSizeChanged;
             Root.Resized += OnRootResized;
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
         private void OnTreeExiting()
@@ -309,18 +314,18 @@ public static class InfoDebugWindow
 
         private void OnViewportSizeChanged()
         {
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
         private void OnRootResized()
         {
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
-        private float CurrentWidth()
+        private Vector2 CurrentViewportSize()
         {
             var viewport = _viewport ?? Root.GetViewport();
-            return viewport?.GetVisibleRect().Size.X ?? 0f;
+            return viewport?.GetVisibleRect().Size ?? Vector2.Zero;
         }
 
         // ---- refresh ---------------------------------------------------------
@@ -381,7 +386,7 @@ public static class InfoDebugWindow
             _detailText.Text = string.Empty;
 
             UpdateStatus();
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
         private static TabState BuildTab(Type managerType, IInfoManager manager, string timestamp)
@@ -447,7 +452,7 @@ public static class InfoDebugWindow
             _suppressTabChanged = false;
 
             UpdateStatus();
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
         // ---- tab UI ----------------------------------------------------------
@@ -610,13 +615,13 @@ public static class InfoDebugWindow
                 _detailText.Text = SerializeDetail(tab.Rows[rowIndex]);
 
             HighlightSelectedRow();
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
         private void OnBack()
         {
             _narrowDetailOpen = false;
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
         private void HighlightSelectedRow()
@@ -666,7 +671,7 @@ public static class InfoDebugWindow
             _detailText.Text = string.Empty;
             HighlightSelectedRow();
             UpdateStatus();
-            ApplyResponsive(CurrentWidth());
+            ApplyResponsive(CurrentViewportSize());
         }
 
         private TabState SelectedTabState()
@@ -715,10 +720,14 @@ public static class InfoDebugWindow
 
         // ---- responsive ------------------------------------------------------
 
-        private void ApplyResponsive(float width)
+        private void ApplyResponsive(Vector2 size)
         {
             var hasSelection = SelectedTabState() != null && _selectedRow >= 0;
-            var wide = width >= WideBreakpointWidth;
+            // Aspect decides the axis: a portrait viewport (height > width, equality is landscape)
+            // stacks; flip the single body container in place instead of reparenting/rebuilding panes.
+            var portrait = size.Y > size.X;
+            var wide = size.X >= WideBreakpointWidth;
+            _body.Vertical = portrait;
 
             if (!hasSelection)
             {
@@ -728,7 +737,7 @@ public static class InfoDebugWindow
                 return;
             }
 
-            if (wide)
+            if (portrait || wide)
             {
                 _tabContainer.Visible = true;
                 _detailPane.Visible = true;
