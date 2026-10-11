@@ -23,6 +23,9 @@ public sealed partial class DebugWindowHost : CanvasLayer
     private const float DragThresholdPx = 8f;
     private const int TitleFontSize = 28;
 
+    /// <summary>Optional content metadata a card's own subtree may publish for a live title.</summary>
+    private const string CardTitleMeta = "info_debug_window_title";
+
     private readonly ConcurrentQueue<OpenRequest> _pending = new();
     private readonly Dictionary<string, WindowCard> _windows = new(StringComparer.Ordinal);
 
@@ -59,6 +62,27 @@ public sealed partial class DebugWindowHost : CanvasLayer
     {
         while (_pending.TryDequeue(out var request))
             HandleOpenRequest(request);
+
+        // Optional live title: a card whose content publishes "info_debug_window_title" metadata
+        // updates its own title label only, without the host knowing anything about that window.
+        foreach (var card in _windows.Values)
+            RefreshCardTitle(card);
+    }
+
+    private static void RefreshCardTitle(WindowCard card)
+    {
+        if (card.Content == null || card.TitleLabel == null)
+            return;
+
+        var title = card.BaseTitle;
+        if (card.Content.HasMeta(CardTitleMeta))
+            title = card.Content.GetMeta(CardTitleMeta).AsString();
+
+        if (string.IsNullOrWhiteSpace(title) || string.Equals(title, card.CurrentTitle, StringComparison.Ordinal))
+            return;
+
+        card.TitleLabel.Text = title;
+        card.CurrentTitle = title;
     }
 
     // Off-thread safe: managed enqueue only, no Godot access.
@@ -129,10 +153,17 @@ public sealed partial class DebugWindowHost : CanvasLayer
         var title = new Label
         {
             Text = request.Title,
+            ClipText = true,
+            TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         title.AddThemeFontSizeOverride("font_size", TitleFontSize);
         header.AddChild(title);
+        card.BaseTitle = request.Title;
+        card.CurrentTitle = request.Title;
+        card.TitleLabel = title;
+        card.Content = content;
 
         var dragArea = new Control
         {
@@ -300,6 +331,14 @@ public sealed partial class DebugWindowHost : CanvasLayer
         public string Name { get; }
 
         public PanelContainer Panel { get; set; }
+
+        public Control Content { get; set; }
+
+        public Label TitleLabel { get; set; }
+
+        public string BaseTitle { get; set; } = string.Empty;
+
+        public string CurrentTitle { get; set; } = string.Empty;
 
         public bool Pressed { get; set; }
 
