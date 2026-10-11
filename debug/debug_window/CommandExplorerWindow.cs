@@ -8,20 +8,35 @@ using Godot;
 namespace cfGodotEngine.Debug;
 
 /// <summary>
-/// Builds the content for the <c>commands</c> debug window ("Command Explorer") and exposes the two
-/// pure operations exercised by engine-free tests. <see cref="Build"/> returns a fresh, parentless
+/// Builds the content for the <c>commands</c> debug window ("Command Explorer") and exposes the pure
+/// operations exercised by engine-free tests. <see cref="Build"/> returns a fresh, parentless
 /// ordinary <see cref="Control"/> subtree; assembling it performs no scene-tree attachment, no
 /// worker/async work and no command execution. The host invokes <see cref="Build"/> from its
 /// main-thread factory and owns the window chrome (title, close, drag, stacking).
 ///
 /// Content: a built-in <see cref="Tree"/> of collapsible scope branches and command leaves, a detail
-/// pane (read-only full path, optional handler hint, one raw args field) and a last-run output pane.
-/// <see cref="BuildCommandTree"/> and <see cref="AssembleCommand"/> never construct Controls, access
-/// Godot, resolve game services or reflect hint attributes, so a plain NUnit host can call them.
+/// pane and a last-run output pane. The detail pane is mixed-mode: a command whose handler declares
+/// arguments (via <see cref="CommandService.ReadArguments"/>) renders a scrollable row list — one
+/// key <see cref="OptionButton"/> plus a type-appropriate value control per argument, an
+/// <c>+ add arg</c> button and a wrapped validation/warning display — while a command with zero
+/// declared arguments (or no selection) keeps the original raw freeform args field verbatim. The Run
+/// button is shared and remains reachable in either mode.
+///
+/// <see cref="BuildCommandTree"/>, <see cref="AssembleCommand"/>, <see cref="AssembleArgs"/> and
+/// <see cref="ValidateArgs"/> never construct Controls, access Godot, resolve game services or
+/// reflect hint attributes, so a plain NUnit host can call them. Metadata is read as a per-instance
+/// snapshot — never a type-level or global cache. Arg types are advisory: the wire stays
+/// <c>-key value</c> strings and handlers keep self-parsing.
 /// </summary>
 public static class CommandExplorerWindow
 {
     private const int ExplorerFontSize = 28;
+
+    // Bounded control widths keep the row list from widening the debug card on a phone-width
+    // viewport; long key/choice labels clip and stay reachable through popup + tooltip.
+    private const float KeyControlMinWidth = 160f;
+    private const float ValueControlMinWidth = 140f;
+    private const float RemoveButtonWidth = 48f;
 
     /// <summary>
     /// Assembles and returns a new parentless Command-Explorer subtree. No scene mutation, no
@@ -82,6 +97,182 @@ public static class CommandExplorerWindow
     }
 
     /// <summary>
+    /// Serializes declared-argument rows into the exact <c>-key value …</c> wire text the parser
+    /// already consumes. This is serialization only: rows are joined in user order with one
+    /// separating space, each row emits its declared <see cref="CommandArg.Name"/> verbatim
+    /// (including any leading hyphen(s)) followed by one space and its supplied value, except a
+    /// <see cref="ArgType.Bool"/> row which emits only its name and ignores the tuple value. Values
+    /// are never trimmed, quoted, escaped, sorted, deduplicated or skipped; a null tuple value
+    /// coalesces to the empty string. An empty row list yields the empty string, so it composes with
+    /// the byte-unchanged <see cref="AssembleCommand"/> (path plus trailing separator). A null
+    /// list or a row with a null spec is an invalid programming input and throws.
+    /// </summary>
+    public static string AssembleArgs(IReadOnlyList<(CommandArg, string)> rows)
+    {
+        if (rows == null)
+            throw new ArgumentNullException(nameof(rows));
+
+        var parts = new List<string>(rows.Count * 2);
+        foreach (var row in rows)
+        {
+            var spec = row.Item1 ?? throw new ArgumentException("A row has a null argument spec.", nameof(rows));
+            parts.Add(spec.Name);
+            if (spec.Type != ArgType.Bool)
+                parts.Add(row.Item2 ?? string.Empty);
+        }
+
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>
+    /// UI validation policy for declared-argument rows — deliberately separate from the parser and
+    /// the handler contract. Returns the first blocking message, or the empty string when the rows
+    /// may run; <paramref name="warning"/> is advisory (e.g. a flag that is not the last argument)
+    /// and never blocks. The current declared list is the membership authority: a selected spec must
+    /// belong to it by reference, names must be hyphen-prefixed and whitespace-free, and a name may
+    /// appear in at most one row (ordinal comparison). Each included non-<see cref="ArgType.Bool"/>
+    /// row needs a single non-whitespace token — the parser cannot quote space-containing values —
+    /// typed per its <see cref="ArgType"/> using the current culture (matching the
+    /// <c>Parameters</c> getters): Int via <c>int.TryParse</c>, Float via <c>float.TryParse</c> plus
+    /// a finite check, and Choice must exactly match one of the declared choices. Every Required
+    /// non-Bool declaration must be present — a Required Bool does not gate presence, because a flag
+    /// carries no value. Rows and specs are never mutated.
+    /// </summary>
+    public static string ValidateArgs(
+        IReadOnlyList<CommandArg> declared,
+        IReadOnlyList<(CommandArg, string)> rows,
+        out string warning)
+    {
+        if (declared == null)
+            throw new ArgumentNullException(nameof(declared));
+        if (rows == null)
+            throw new ArgumentNullException(nameof(rows));
+
+        warning = string.Empty;
+        var lastIndex = rows.Count - 1;
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var spec = rows[i].Item1 ?? throw new ArgumentException("A row has a null argument spec.", nameof(rows));
+            var value = rows[i].Item2 ?? string.Empty;
+
+            if (!IsDeclared(declared, spec))
+                return $"Argument '{spec.Name}' is not declared for this command.";
+            if (!IsValidKeyToken(spec.Name))
+                return $"Argument name '{spec.Name}' must start with '-' and contain no whitespace.";
+            if (!Enum.IsDefined(typeof(ArgType), spec.Type))
+                return $"Argument '{spec.Name}' has an unsupported type.";
+
+            for (var j = 0; j < i; j++)
+            {
+                var other = rows[j].Item1;
+                if (other != null && string.Equals(other.Name, spec.Name, StringComparison.Ordinal))
+                    return $"Argument '{spec.Name}' is selected in more than one row.";
+            }
+
+            if (spec.Type != ArgType.Bool)
+            {
+                if (value.Length == 0)
+                    return $"Argument '{spec.Name}' needs a value, or remove the row.";
+                if (ContainsWhitespace(value))
+                    return $"Argument '{spec.Name}' value cannot contain spaces; the parser cannot quote space-containing values.";
+
+                var typeError = ValidateValueType(spec, value);
+                if (typeError != null)
+                    return typeError;
+            }
+            else if (i < lastIndex && warning.Length == 0)
+            {
+                warning = $"'{spec.Name}' is a flag and must be the last argument.";
+            }
+        }
+
+        for (var i = 0; i < declared.Count; i++)
+        {
+            var spec = declared[i];
+            if (spec == null || !spec.Required || spec.Type == ArgType.Bool)
+                continue;
+
+            var present = false;
+            for (var j = 0; j < rows.Count; j++)
+            {
+                if (ReferenceEquals(rows[j].Item1, spec))
+                {
+                    present = true;
+                    break;
+                }
+            }
+
+            if (!present)
+                return $"Required argument '{spec.Name}' is missing.";
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsDeclared(IReadOnlyList<CommandArg> declared, CommandArg spec)
+    {
+        for (var i = 0; i < declared.Count; i++)
+        {
+            if (ReferenceEquals(declared[i], spec))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsValidKeyToken(string name)
+    {
+        if (string.IsNullOrEmpty(name) || name[0] != '-')
+            return false;
+
+        return !ContainsWhitespace(name);
+    }
+
+    private static bool ContainsWhitespace(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsWhiteSpace(text[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string ValidateValueType(CommandArg spec, string value)
+    {
+        switch (spec.Type)
+        {
+            case ArgType.Int:
+                return int.TryParse(value, out _)
+                    ? null
+                    : $"Argument '{spec.Name}' must be a whole number.";
+
+            case ArgType.Float:
+                if (!float.TryParse(value, out var number))
+                    return $"Argument '{spec.Name}' must be a number.";
+                if (float.IsNaN(number) || float.IsInfinity(number))
+                    return $"Argument '{spec.Name}' must be a finite number.";
+                return null;
+
+            case ArgType.Choice:
+                if (spec.Choices == null || spec.Choices.Count == 0)
+                    return $"Argument '{spec.Name}' has no choices to select.";
+                for (var i = 0; i < spec.Choices.Count; i++)
+                {
+                    if (string.Equals(spec.Choices[i], value, StringComparison.Ordinal))
+                        return null;
+                }
+
+                return $"Argument '{spec.Name}' must be one of: {string.Join(", ", spec.Choices)}.";
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
     /// One node of the command tree: a command leaf (<see cref="IsCommand"/> true) or a scope branch.
     /// The public surface is read-only; construction and owner-service/name bookkeeping are nonpublic.
     /// </summary>
@@ -131,16 +322,29 @@ public static class CommandExplorerWindow
         private readonly Tree _tree;
         private readonly LineEdit _pathField;
         private readonly Label _hintLabel;
+        private readonly HBoxContainer _rawArea;
         private readonly LineEdit _argsField;
+        private readonly VBoxContainer _declaredArea;
+        private readonly ScrollContainer _rowsScroll;
+        private readonly VBoxContainer _rowsBox;
+        private readonly Button _addButton;
+        private readonly Label _errorLabel;
+        private readonly Label _warningLabel;
         private readonly Button _runButton;
         private readonly Label _outputStatus;
         private readonly RichTextLabel _output;
 
         private readonly Dictionary<TreeItem, CommandTreeEntry> _entryByItem = new();
+        private readonly List<RowState> _rows = new();
 
         private CommandTreeEntry _selected;
+        private ICommandHandler _selectedHandler;
+        private IReadOnlyList<CommandArg> _declaredArgs = Array.Empty<CommandArg>();
         private Viewport _viewport;
         private bool _running;
+        private bool _declaredMode;
+        private bool _editingLocked;
+        private bool _rebuilding;
 
         public Explorer()
         {
@@ -224,9 +428,11 @@ public static class CommandExplorerWindow
             _hintLabel.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
             detail.AddChild(_hintLabel);
 
-            var argsRow = new HBoxContainer();
-            argsRow.AddThemeConstantOverride("separation", 8);
-            detail.AddChild(argsRow);
+            // Raw mode: the original freeform args field, kept verbatim. Its whole area is hidden in
+            // declared mode; Run deliberately lives outside it so it stays reachable either way.
+            _rawArea = new HBoxContainer();
+            _rawArea.AddThemeConstantOverride("separation", 8);
+            detail.AddChild(_rawArea);
 
             _argsField = new LineEdit
             {
@@ -235,8 +441,60 @@ public static class CommandExplorerWindow
             };
             _argsField.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
             _argsField.TextSubmitted += OnArgsSubmitted;
-            argsRow.AddChild(_argsField);
+            _rawArea.AddChild(_argsField);
 
+            // Declared mode: a bounded scroll of key rows, an add button and a wrapped
+            // validation/warning display. Hidden until a command with declared args is selected.
+            _declaredArea = new VBoxContainer
+            {
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+                Visible = false
+            };
+            _declaredArea.AddThemeConstantOverride("separation", 6);
+            detail.AddChild(_declaredArea);
+
+            _rowsScroll = new ScrollContainer
+            {
+                ClipContents = true,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                SizeFlagsVertical = Control.SizeFlags.ExpandFill
+            };
+            _declaredArea.AddChild(_rowsScroll);
+
+            _rowsBox = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.Fill };
+            _rowsBox.AddThemeConstantOverride("separation", 6);
+            _rowsScroll.AddChild(_rowsBox);
+
+            _addButton = new Button
+            {
+                Text = "+ add arg",
+                FocusMode = Control.FocusModeEnum.None,
+                Disabled = true
+            };
+            _addButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _addButton.Pressed += OnAddPressed;
+            _declaredArea.AddChild(_addButton);
+
+            _errorLabel = new Label
+            {
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                Visible = false
+            };
+            _errorLabel.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _declaredArea.AddChild(_errorLabel);
+
+            _warningLabel = new Label
+            {
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                Visible = false
+            };
+            _warningLabel.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _declaredArea.AddChild(_warningLabel);
+
+            // Run is shared by both modes and is never a descendant of a hidden raw-only container.
             _runButton = new Button
             {
                 Text = "Run",
@@ -245,7 +503,7 @@ public static class CommandExplorerWindow
             };
             _runButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
             _runButton.Pressed += Run;
-            argsRow.AddChild(_runButton);
+            detail.AddChild(_runButton);
 
             // Last-run output: a pinned status line and an independent, selectable, scrollable body.
             _outputStatus = new Label
@@ -386,10 +644,13 @@ public static class CommandExplorerWindow
         private void ClearSelection()
         {
             _selected = null;
+            _selectedHandler = null;
+            _declaredArgs = Array.Empty<CommandArg>();
             _pathField.Text = string.Empty;
             _hintLabel.Text = string.Empty;
             _hintLabel.Visible = false;
             _argsField.Text = string.Empty;
+            EnterRawMode(grabFocus: false);
             _runButton.Disabled = true;
         }
 
@@ -400,14 +661,19 @@ public static class CommandExplorerWindow
             _argsField.Text = string.Empty;
             _hintLabel.Text = string.Empty;
             _hintLabel.Visible = false;
+            _selectedHandler = null;
+            _declaredArgs = Array.Empty<CommandArg>();
 
             if (!entry.Owner.TryGetHandler(entry.Name, out var handler) || handler == null)
             {
                 // The registration vanished since the last walk; do not offer a stale runnable leaf.
+                EnterRawMode(grabFocus: false);
                 _runButton.Disabled = true;
                 SetStatus($"'{entry.Path}' is no longer registered. Tap ⟳ Refresh.");
                 return;
             }
+
+            _selectedHandler = handler;
 
             var hint = ReadHint(handler);
             if (!string.IsNullOrEmpty(hint))
@@ -416,9 +682,15 @@ public static class CommandExplorerWindow
                 _hintLabel.Visible = true;
             }
 
-            _runButton.Disabled = false;
-            _argsField.GrabFocus();
-            _argsField.CaretColumn = _argsField.Text.Length;
+            // One per-instance metadata read per selection; never a type-level or global cache.
+            _declaredArgs = CommandService.ReadArguments(handler) ?? Array.Empty<CommandArg>();
+
+            if (_declaredArgs.Count == 0)
+                EnterRawMode(grabFocus: true);
+            else
+                EnterDeclaredMode();
+
+            UpdateEligibility();
         }
 
         private static string ReadHint(ICommandHandler handler)
@@ -426,6 +698,443 @@ public static class CommandExplorerWindow
             var attribute = handler.GetType()
                 .GetCustomAttribute<ICommandHandler.HintAttribute>(inherit: false);
             return attribute?.description;
+        }
+
+        // ---- declared-arg mode ----------------------------------------------
+
+        private void EnterRawMode(bool grabFocus)
+        {
+            _declaredMode = false;
+            DisposeRows();
+            _rawArea.Visible = true;
+            _declaredArea.Visible = false;
+            _addButton.Disabled = true;
+            _errorLabel.Text = string.Empty;
+            _errorLabel.Visible = false;
+            _warningLabel.Text = string.Empty;
+            _warningLabel.Visible = false;
+
+            if (grabFocus)
+            {
+                _argsField.GrabFocus();
+                _argsField.CaretColumn = _argsField.Text.Length;
+            }
+        }
+
+        private void EnterDeclaredMode()
+        {
+            _declaredMode = true;
+            _rawArea.Visible = false;
+            _declaredArea.Visible = true;
+            RebuildInitialRows();
+            FocusFirstRow();
+        }
+
+        private void RebuildInitialRows()
+        {
+            _rebuilding = true;
+            try
+            {
+                DisposeRows();
+                // Required non-Bool declarations start as rows in declaration order; optional and
+                // Required-Bool declarations are added explicitly through "+ add arg".
+                for (var i = 0; i < _declaredArgs.Count; i++)
+                {
+                    var spec = _declaredArgs[i];
+                    if (spec == null || !spec.Required || spec.Type == ArgType.Bool)
+                        continue;
+
+                    AddRow(spec);
+                }
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
+
+            RefreshRowAvailability();
+            RecomputeValidation();
+        }
+
+        private void FocusFirstRow()
+        {
+            if (_rows.Count == 0)
+                return;
+
+            var row = _rows[0];
+            if (row.ValueControl is LineEdit line)
+            {
+                line.GrabFocus();
+                line.CaretColumn = line.Text.Length;
+            }
+            else
+            {
+                row.KeyButton.GrabFocus();
+            }
+        }
+
+        private RowState AddRow(CommandArg spec)
+        {
+            var row = new RowState { Spec = spec };
+
+            var rowBox = new HBoxContainer();
+            rowBox.AddThemeConstantOverride("separation", 8);
+            rowBox.SizeFlagsHorizontal = Control.SizeFlags.Fill;
+            _rowsBox.AddChild(rowBox);
+            row.Row = rowBox;
+
+            var keyButton = new OptionButton
+            {
+                // Cap the drop-down's minimum width so long labels cannot widen the card; the full
+                // label stays reachable through the popup and the tooltip.
+                ClipText = true,
+                CustomMinimumSize = new Vector2(KeyControlMinWidth, 0)
+            };
+            keyButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            for (var i = 0; i < _declaredArgs.Count; i++)
+            {
+                var candidate = _declaredArgs[i];
+                keyButton.AddItem(candidate.Name);
+                if (!string.IsNullOrEmpty(candidate.Description))
+                    keyButton.SetItemTooltip(i, candidate.Description);
+            }
+
+            keyButton.Selected = IndexOfSpec(spec);
+            keyButton.TooltipText = SpecTooltip(spec);
+            keyButton.ItemSelected += index => OnRowKeyChanged(row, (int)index);
+            rowBox.AddChild(keyButton);
+            row.KeyButton = keyButton;
+
+            rowBox.AddChild(BuildValueControl(row, spec));
+
+            var removeButton = new Button
+            {
+                Text = "✕",
+                FocusMode = Control.FocusModeEnum.None,
+                CustomMinimumSize = new Vector2(RemoveButtonWidth, 0)
+            };
+            removeButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            removeButton.Pressed += () => OnRowRemoved(row);
+            rowBox.AddChild(removeButton);
+            row.RemoveButton = removeButton;
+
+            _rows.Add(row);
+            return row;
+        }
+
+        private Control BuildValueControl(RowState row, CommandArg spec)
+        {
+            switch (spec.Type)
+            {
+                case ArgType.Bool:
+                    // A flag carries no value at all — presence is the value.
+                    row.Value = string.Empty;
+                    row.ValueControl = null;
+                    return null;
+
+                case ArgType.Choice:
+                {
+                    var choice = new OptionButton
+                    {
+                        ClipText = true,
+                        CustomMinimumSize = new Vector2(ValueControlMinWidth, 0)
+                    };
+                    choice.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+                    for (var i = 0; i < spec.Choices.Count; i++)
+                    {
+                        choice.AddItem(spec.Choices[i]);
+                        choice.SetItemTooltip(i, spec.Choices[i]);
+                    }
+
+                    var initial = spec.Choices.Count > 0 ? spec.Choices[0] : string.Empty;
+                    if (spec.Choices.Count > 0)
+                        choice.Selected = 0;
+                    row.Value = initial;
+                    choice.TooltipText = initial;
+                    choice.ItemSelected += index => OnRowValueSelected(row, (int)index);
+                    row.ValueControl = choice;
+                    return choice;
+                }
+
+                default:
+                {
+                    var line = new LineEdit
+                    {
+                        SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                        CustomMinimumSize = new Vector2(ValueControlMinWidth, 0)
+                    };
+                    if (spec.Type == ArgType.Int || spec.Type == ArgType.Float)
+                        line.VirtualKeyboardType = LineEdit.VirtualKeyboardTypeEnum.NumberDecimal;
+                    line.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+                    row.Value = string.Empty;
+                    line.TextChanged += text => OnRowValueChanged(row, text);
+                    line.TextSubmitted += _ => Run();
+                    row.ValueControl = line;
+                    return line;
+                }
+            }
+        }
+
+        private int IndexOfSpec(CommandArg spec)
+        {
+            for (var i = 0; i < _declaredArgs.Count; i++)
+            {
+                if (ReferenceEquals(_declaredArgs[i], spec))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static string SpecTooltip(CommandArg spec)
+        {
+            var label = string.IsNullOrEmpty(spec.Description) ? spec.Name : $"{spec.Name} — {spec.Description}";
+            return spec.Required ? $"{label} (required)" : label;
+        }
+
+        private void OnRowKeyChanged(RowState row, int index)
+        {
+            if (_rebuilding || index < 0 || index >= _declaredArgs.Count)
+                return;
+
+            var spec = _declaredArgs[index];
+            if (ReferenceEquals(row.Spec, spec))
+                return;
+
+            _rebuilding = true;
+            try
+            {
+                row.Spec = spec;
+                // Changing type discards the previous value control entirely and resets its value.
+                if (row.ValueControl != null)
+                {
+                    row.Row.RemoveChild(row.ValueControl);
+                    row.ValueControl.QueueFree();
+                    row.ValueControl = null;
+                }
+
+                var replacement = BuildValueControl(row, spec);
+                if (replacement != null)
+                {
+                    row.Row.AddChild(replacement);
+                    // Keep the value control between the key dropdown and the remove button.
+                    row.Row.MoveChild(replacement, 1);
+                }
+
+                row.KeyButton.TooltipText = SpecTooltip(spec);
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
+
+            RefreshRowAvailability();
+            RecomputeValidation();
+            UpdateEligibility();
+        }
+
+        private void OnRowValueChanged(RowState row, string text)
+        {
+            if (_rebuilding)
+                return;
+
+            row.Value = text ?? string.Empty;
+            RecomputeValidation();
+            UpdateEligibility();
+        }
+
+        private void OnRowValueSelected(RowState row, int index)
+        {
+            if (_rebuilding || row.Spec == null)
+                return;
+
+            var choices = row.Spec.Choices;
+            if (index < 0 || index >= choices.Count)
+                return;
+
+            row.Value = choices[index];
+            if (row.ValueControl is OptionButton button)
+                button.TooltipText = row.Value;
+            RecomputeValidation();
+            UpdateEligibility();
+        }
+
+        private void OnRowRemoved(RowState row)
+        {
+            if (_editingLocked || _rebuilding)
+                return;
+
+            RemoveRow(row);
+            RefreshRowAvailability();
+            RecomputeValidation();
+            UpdateEligibility();
+        }
+
+        private void RemoveRow(RowState row)
+        {
+            if (!_rows.Remove(row))
+                return;
+
+            if (row.Row.GetParent() != null)
+            {
+                _rowsBox.RemoveChild(row.Row);
+                row.Row.QueueFree();
+            }
+        }
+
+        private void OnAddPressed()
+        {
+            if (_editingLocked || _rebuilding)
+                return;
+
+            var spec = FirstUnusedSpec();
+            if (spec == null)
+                return;
+
+            var row = AddRow(spec);
+            RefreshRowAvailability();
+            RecomputeValidation();
+            UpdateEligibility();
+
+            if (row.ValueControl is LineEdit line)
+                line.GrabFocus();
+            else
+                row.KeyButton.GrabFocus();
+        }
+
+        private CommandArg FirstUnusedSpec()
+        {
+            for (var i = 0; i < _declaredArgs.Count; i++)
+            {
+                if (!IsSpecUsed(_declaredArgs[i]))
+                    return _declaredArgs[i];
+            }
+
+            return null;
+        }
+
+        private bool IsSpecUsed(CommandArg spec)
+        {
+            for (var i = 0; i < _rows.Count; i++)
+            {
+                if (ReferenceEquals(_rows[i].Spec, spec))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void DisposeRows()
+        {
+            // Mirror InfoDebugWindow.ClearChildren: detach then queue-free so no stale callback can
+            // mutate a removed row.
+            for (var i = 0; i < _rows.Count; i++)
+            {
+                var row = _rows[i];
+                if (row.Row.GetParent() != null)
+                {
+                    _rowsBox.RemoveChild(row.Row);
+                    row.Row.QueueFree();
+                }
+            }
+
+            _rows.Clear();
+
+            foreach (var child in _rowsBox.GetChildren())
+            {
+                _rowsBox.RemoveChild(child);
+                child.QueueFree();
+            }
+        }
+
+        private void RefreshRowAvailability()
+        {
+            // A key chosen by one row is disabled in every other row's dropdown; each row keeps its
+            // own key selectable so the popup mis-selection that produced the duplicate is reversible.
+            for (var i = 0; i < _rows.Count; i++)
+            {
+                var row = _rows[i];
+                for (var item = 0; item < _declaredArgs.Count; item++)
+                {
+                    var spec = _declaredArgs[item];
+                    var usedByOther = false;
+                    for (var other = 0; other < _rows.Count; other++)
+                    {
+                        if (other == i)
+                            continue;
+                        if (_rows[other].Spec != null && ReferenceEquals(_rows[other].Spec, spec))
+                        {
+                            usedByOther = true;
+                            break;
+                        }
+                    }
+
+                    row.KeyButton.SetItemDisabled(item, usedByOther);
+                }
+            }
+
+            _addButton.Disabled = _editingLocked || FirstUnusedSpec() == null;
+        }
+
+        private void RecomputeValidation()
+        {
+            if (!_declaredMode)
+            {
+                _errorLabel.Text = string.Empty;
+                _errorLabel.Visible = false;
+                _warningLabel.Text = string.Empty;
+                _warningLabel.Visible = false;
+                return;
+            }
+
+            var tuples = CurrentTuples();
+            var error = ValidateArgs(_declaredArgs, tuples, out var warning);
+
+            _errorLabel.Text = error;
+            _errorLabel.Visible = !string.IsNullOrEmpty(error);
+            _warningLabel.Text = warning;
+            _warningLabel.Visible = !string.IsNullOrEmpty(warning);
+        }
+
+        private List<(CommandArg, string)> CurrentTuples()
+        {
+            var tuples = new List<(CommandArg, string)>(_rows.Count);
+            for (var i = 0; i < _rows.Count; i++)
+                tuples.Add((_rows[i].Spec, _rows[i].Value ?? string.Empty));
+            return tuples;
+        }
+
+        private void SetEditingLocked(bool locked)
+        {
+            _editingLocked = locked;
+            for (var i = 0; i < _rows.Count; i++)
+            {
+                var row = _rows[i];
+                row.KeyButton.Disabled = locked;
+                row.RemoveButton.Disabled = locked;
+                if (row.ValueControl is LineEdit line)
+                    line.Editable = !locked;
+                else if (row.ValueControl is OptionButton choice)
+                    choice.Disabled = locked;
+            }
+
+            RefreshRowAvailability();
+        }
+
+        private void UpdateEligibility()
+        {
+            _runButton.Disabled = !IsEligible();
+        }
+
+        private bool IsEligible()
+        {
+            if (_running || _selected == null || !_selected.IsCommand)
+                return false;
+
+            if (!_declaredMode)
+                return true;
+
+            return string.IsNullOrEmpty(ValidateArgs(_declaredArgs, CurrentTuples(), out _));
         }
 
         // ---- run -------------------------------------------------------------
@@ -451,7 +1160,40 @@ public static class CommandExplorerWindow
                 return;
             }
 
-            var command = AssembleCommand(entry.Path, _argsField.Text ?? string.Empty);
+            string command;
+            if (_declaredMode)
+            {
+                // The instance's declarations are the source of truth. If the registered instance
+                // changed since selection, the rows describe a stale command — invalidate, refresh
+                // and refuse rather than executing against the old declarations.
+                if (!ReferenceEquals(handler, _selectedHandler))
+                {
+                    DisposeRows();
+                    Refresh();
+                    return;
+                }
+
+                // Independently validate: Enter and programmatic calls must not bypass Required,
+                // duplicate or type checks that might otherwise leave Run enabled by mistake.
+                var tuples = CurrentTuples();
+                var error = ValidateArgs(_declaredArgs, tuples, out var warning);
+                _errorLabel.Text = error;
+                _errorLabel.Visible = !string.IsNullOrEmpty(error);
+                _warningLabel.Text = warning;
+                _warningLabel.Visible = !string.IsNullOrEmpty(warning);
+                if (!string.IsNullOrEmpty(error))
+                {
+                    UpdateEligibility();
+                    return;
+                }
+
+                command = AssembleCommand(entry.Path, AssembleArgs(tuples));
+            }
+            else
+            {
+                // Raw legacy mode keeps the byte-unchanged assembly and registered-handler checks.
+                command = AssembleCommand(entry.Path, _argsField.Text ?? string.Empty);
+            }
 
             // Replace the previous run's output; never append runs together.
             _output.Text = string.Empty;
@@ -460,6 +1202,7 @@ public static class CommandExplorerWindow
             _running = true;
             _runButton.Disabled = true;
             _refreshButton.Disabled = true;
+            SetEditingLocked(true);
 
             // Captured callbacks only append managed text here; no Godot object is touched off the
             // Run routine, which does all Control mutation after ExecuteAndCapture returns.
@@ -486,7 +1229,11 @@ public static class CommandExplorerWindow
                 RenderOutput(logs, success, completion, failure);
                 _running = false;
                 _refreshButton.Disabled = false;
-                _runButton.Disabled = _selected == null || !_selected.IsCommand;
+                SetEditingLocked(false);
+                // Failed execution must not unlock invalid rows: recompute from live state rather
+                // than the old unconditional leaf-only re-enable.
+                RecomputeValidation();
+                UpdateEligibility();
             }
         }
 
@@ -547,6 +1294,20 @@ public static class CommandExplorerWindow
         private void SetStatus(string text)
         {
             _status.Text = text;
+        }
+
+        /// <summary>
+        /// Private per-row managed state projecting onto real Controls: the selected declaration, the
+        /// current wire value and the three controls. Kept private so no new public type is exported.
+        /// </summary>
+        private sealed class RowState
+        {
+            public CommandArg Spec { get; set; }
+            public HBoxContainer Row { get; set; }
+            public OptionButton KeyButton { get; set; }
+            public Control ValueControl { get; set; }
+            public Button RemoveButton { get; set; }
+            public string Value { get; set; } = string.Empty;
         }
     }
 }
