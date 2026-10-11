@@ -235,6 +235,9 @@ public static class InfoDebugWindow
                 SizeFlagsStretchRatio = TableStretchRatio
             };
             _tabContainer.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            var tabBar = _tabContainer.GetTabBar();
+            tabBar.ClipTabs = true;
+            tabBar.MaxTabWidth = 150;
             _tabContainer.TabChanged += OnTabChanged;
             body.AddChild(_tabContainer);
 
@@ -591,9 +594,9 @@ public static class InfoDebugWindow
 
         private static string TabTitle(TabState tab)
         {
-            if (tab.Error != null)
-                return $"{tab.DisplayName} · error";
-            return $"{tab.DisplayName} · {tab.TotalRows} rows · refreshed {tab.Timestamp}";
+            // Short, stable tab labels: the tab strip must stay reachable on a phone-width card.
+            // Counts, timestamps and error state belong on the status line (see UpdateStatus).
+            return tab.DisplayName;
         }
 
         // ---- selection / detail ---------------------------------------------
