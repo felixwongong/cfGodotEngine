@@ -217,7 +217,13 @@ public static class InfoDebugWindow
         Number,
         Bool,
         Enum,
-        Vector2I
+        Vector2I,
+
+        /// <summary>
+        /// A one-level <c>List&lt;TChild&gt;</c> column at parent depth. It is not edited in place;
+        /// a resolved binding turns it into a drill-down child table instead of a read-only label.
+        /// </summary>
+        ChildList
     }
 
     /// <summary>One reflected table column with its editing support and sheet constraint.</summary>
@@ -230,17 +236,42 @@ public static class InfoDebugWindow
         public InfoFieldAttribute? Field;
         public EditorKind Kind;
 
+        /// <summary>Element type when <see cref="Kind"/> is <see cref="EditorKind.ChildList"/>.</summary>
+        public Type? ChildElementType;
+
         public bool CanEdit => Kind != EditorKind.None && Property.GetSetMethod(false) != null;
     }
 
-    /// <summary>Reflected columns for <paramref name="infoType"/> carrying their editing support.</summary>
+    /// <summary>
+    /// Reflected columns for <paramref name="infoType"/> carrying their editing support, at parent
+    /// depth (one-level child lists are detected). Named without an overload so the reflection-based
+    /// test seam stays unambiguous.
+    /// </summary>
     private static List<ColumnInfo> DescribeColumns(Type infoType)
-        => ReadableColumns(infoType).Select(DescribeColumn).ToList();
+        => BuildColumns(infoType, allowChildLists: true);
 
-    private static ColumnInfo DescribeColumn(PropertyInfo property)
+    /// <summary>
+    /// Reflected columns with one-level child-list detection enabled only at parent depth. A
+    /// <c>List&lt;TChild&gt;</c> at child depth stays read-only: the child table is one level only.
+    /// </summary>
+    private static List<ColumnInfo> BuildColumns(Type infoType, bool allowChildLists)
+        => ReadableColumns(infoType).Select(property => DescribeColumn(property, allowChildLists)).ToList();
+
+    private static ColumnInfo DescribeColumn(PropertyInfo property, bool allowChildLists)
     {
         var type = property.PropertyType;
         var field = property.GetCustomAttribute<InfoFieldAttribute>();
+        var kind = KindOf(type);
+        Type? childElementType = null;
+
+        // One level only: a generic List<T> whose element is a class other than string. Arrays,
+        // List<string>, structs (incl. Vector2I), and every other collection stay read-only JSON.
+        if (allowChildLists && TryChildElementType(type, out var element))
+        {
+            kind = EditorKind.ChildList;
+            childElementType = element;
+        }
+
         return new ColumnInfo
         {
             Property = property,
@@ -248,8 +279,28 @@ public static class InfoDebugWindow
             ValueType = type,
             IsKey = property.GetCustomAttribute<InfoKeyAttribute>() != null,
             Field = field,
-            Kind = KindOf(type)
+            Kind = kind,
+            ChildElementType = childElementType
         };
+    }
+
+    /// <summary>
+    /// True only for exactly <c>List&lt;T&gt;</c> with a reference-type element other than
+    /// <see cref="string"/>. Mirrors the schema builder's collection classification, so parity with
+    /// the sheet converter is structural rather than a reflected member inspection.
+    /// </summary>
+    private static bool TryChildElementType(Type type, out Type elementType)
+    {
+        elementType = typeof(object);
+        if (!type.IsGenericType || type.GetGenericTypeDefinition() != typeof(List<>))
+            return false;
+
+        var element = type.GetGenericArguments()[0];
+        if (!element.IsClass || element == typeof(string))
+            return false;
+
+        elementType = element;
+        return true;
     }
 
     private static EditorKind KindOf(Type type)
@@ -587,6 +638,23 @@ public static class InfoDebugWindow
             return null;
         }
 
+        /// <summary>
+        /// Every public instance property carrying <see cref="InfoKeyAttribute"/>, in declaration
+        /// order. Used to enforce "exactly one" child identity: zero keys means no natural identity,
+        /// two or more is ambiguous and must not be silently resolved to the first.
+        /// </summary>
+        public static List<PropertyInfo> FindKeys(Type infoType)
+        {
+            var keys = new List<PropertyInfo>();
+            foreach (var property in infoType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (property.GetCustomAttribute<InfoKeyAttribute>() != null)
+                    keys.Add(property);
+            }
+
+            return keys;
+        }
+
         public static string? FormatKey(PropertyInfo keyProperty, object row)
         {
             var value = keyProperty.GetValue(row);
@@ -692,6 +760,221 @@ public static class InfoDebugWindow
         }
     }
 
+    /// <summary>How a one-level child list identifies its rows.</summary>
+    private enum ChildIdentitySource
+    {
+        InfoKey,
+        Composition,
+        Positional
+    }
+
+    /// <summary>
+    /// The resolved identity rule for one child element type: an <see cref="InfoKeyAttribute"/>
+    /// property, an explicit composition callback property, or explicit positional mode.
+    /// </summary>
+    private sealed class ChildIdentity
+    {
+        public Type ElementType = typeof(object);
+        public ChildIdentitySource Source;
+        public PropertyInfo? Property;
+
+        public bool Positional => Property == null;
+
+        /// <summary>Sheet/status label: the property name, or the explicit positional form.</summary>
+        public string Label => Property != null ? Property.Name : "items[index]";
+    }
+
+    /// <summary>Result of validating one list's declared child identity over all its rows.</summary>
+    private sealed class ChildListIdentityResult
+    {
+        public bool Ok = true;
+        public bool Blank;
+        public bool Duplicate;
+        public string? Error;
+    }
+
+    /// <summary>One-level child list identity: resolution, over-the-list validation, row labels.</summary>
+    private static class Children
+    {
+        public static ChildIdentity Resolve(Type elementType, Func<Type, string?>? resolver)
+        {
+            // Exactly one [InfoKey] wins; two or more is ambiguous, never "the first".
+            var keys = Keying.FindKeys(elementType);
+            if (keys.Count == 1)
+                return new ChildIdentity
+                {
+                    ElementType = elementType,
+                    Source = ChildIdentitySource.InfoKey,
+                    Property = keys[0]
+                };
+
+            if (resolver != null)
+            {
+                string? name = null;
+                try
+                {
+                    name = resolver(elementType);
+                }
+                catch (Exception ex)
+                {
+                    Log.LogException(ex, "InfoDebugWindow: child identity resolver threw.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    var property = elementType.GetProperty(name!, BindingFlags.Public | BindingFlags.Instance);
+                    if (property != null && property.GetIndexParameters().Length == 0)
+                        return new ChildIdentity
+                        {
+                            ElementType = elementType,
+                            Source = ChildIdentitySource.Composition,
+                            Property = property
+                        };
+                }
+            }
+
+            return new ChildIdentity
+            {
+                ElementType = elementType,
+                Source = ChildIdentitySource.Positional,
+                Property = null
+            };
+        }
+
+        /// <summary>
+        /// Validates a declared identity over the whole sibling list: readable, public-settable,
+        /// editor-supported scalar, present and unique. A zero numeric value is valid; a blank or
+        /// duplicate value is a visible error and never a positional fallback.
+        /// </summary>
+        public static ChildListIdentityResult ValidateList(ChildIdentity identity, IList? list, string path)
+        {
+            var result = new ChildListIdentityResult();
+            if (identity.Positional)
+                return result;
+
+            var property = identity.Property!;
+            var kind = KindOf(property.PropertyType);
+            if (kind is EditorKind.None or EditorKind.ChildList || property.GetSetMethod(false) == null)
+            {
+                result.Ok = false;
+                result.Error = $"{path}: child identity '{property.Name}' is not an editor-supported scalar";
+                return result;
+            }
+
+            if (list == null)
+                return result;
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < list.Count; i++)
+            {
+                var child = list[i];
+                if (child == null)
+                {
+                    result.Ok = false;
+                    result.Blank = true;
+                    result.Error ??= $"{path}: a child row is null";
+                    continue;
+                }
+
+                object? value;
+                try
+                {
+                    value = property.GetValue(child);
+                }
+                catch (Exception ex)
+                {
+                    result.Ok = false;
+                    result.Error ??= $"{path}: child identity '{property.Name}' could not be read ({ex.GetType().Name})";
+                    continue;
+                }
+
+                var text = Keying.FormatKeyValue(value);
+                if (text == null || (value is string raw && string.IsNullOrWhiteSpace(raw)))
+                {
+                    result.Ok = false;
+                    result.Blank = true;
+                    result.Error ??= $"{path}: child identity '{property.Name}' is blank at index {i}";
+                    continue;
+                }
+
+                if (!seen.Add(text))
+                {
+                    result.Ok = false;
+                    result.Duplicate = true;
+                    result.Error ??= $"{path}: duplicate child identity '{text}'";
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>Deterministic row label: identity value, or the explicit <c>items[index]</c>.</summary>
+        public static string Label(ChildIdentity identity, object? row, int index)
+        {
+            var name = identity.Property != null ? identity.Property.Name : "items";
+            if (identity.Positional || row == null)
+                return $"{name}[{index}]";
+
+            try
+            {
+                return Keying.FormatKeyValue(identity.Property!.GetValue(row)) ?? $"{name}[{index}]";
+            }
+            catch (Exception)
+            {
+                return $"{name}[{index}]";
+            }
+        }
+
+        /// <summary>The runtime list behind one <c>List&lt;TChild&gt;</c> column, or null.</summary>
+        public static IList? ListOf(PropertyInfo property, object? row)
+        {
+            if (row == null)
+                return null;
+
+            try
+            {
+                return property.GetValue(row) as IList;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>One changed/added/deleted child row of a one-level child list.</summary>
+    private sealed class ChildRowDiff
+    {
+        public string Identity = string.Empty;
+        public int Index = -1;
+        public bool Added;
+        public bool Deleted;
+        public readonly HashSet<string> ChangedColumns = new(StringComparer.Ordinal);
+        public int ChangedCells;
+    }
+
+    /// <summary>One-level child list diff for a single parent row and child property.</summary>
+    private sealed class ChildListDiff
+    {
+        public string PropertyName = string.Empty;
+        public string IdentityProperty = "items[index]";
+        public bool Positional;
+        public bool IdentityError;
+        public string? IdentityMessage;
+
+        /// <summary>The container itself changed (null ↔ empty/non-null) — one structural change.</summary>
+        public bool Structural;
+
+        /// <summary>Membership and values are identical but the order changed — one list change.</summary>
+        public bool OrderOnly;
+
+        public int ChangedCells;
+        public readonly List<ChildRowDiff> Rows = new();
+        public readonly List<ChildRowDiff> Deleted = new();
+
+        public bool AnyChange => ChangedCells > 0 || Structural || OrderOnly || IdentityError;
+    }
+
     /// <summary>Fresh-canon diff keyed by the single <see cref="InfoKeyAttribute"/>.</summary>
     private static class Diffing
     {
@@ -701,13 +984,28 @@ public static class InfoDebugWindow
             IReadOnlyList<object> current,
             IReadOnlyDictionary<string, object> canonByKey,
             bool canonKnown)
+            => ComputeSectioned(infoType, columns, current, canonByKey, canonKnown, null);
+
+        /// <summary>
+        /// Fresh-canon diff that also compares every one-level child list. Rows are matched by the
+        /// resolved child identity (or explicitly positionally); the parent <c>List</c> column is
+        /// never counted as a cell, only its leaves are.
+        /// </summary>
+        public static DiffResult ComputeSectioned(
+            Type infoType,
+            IReadOnlyList<ColumnInfo> columns,
+            IReadOnlyList<object> current,
+            IReadOnlyDictionary<string, object> canonByKey,
+            bool canonKnown,
+            Func<Type, string?>? resolveChildIdentity)
         {
             var result = new DiffResult { CanonKnown = canonKnown };
             if (!canonKnown)
                 return result;
 
             var keyProperty = Keying.FindKey(infoType);
-            var dataColumns = columns.Where(static column => !column.IsKey).ToList();
+            var dataColumns = columns.Where(static column => !column.IsKey && column.Kind != EditorKind.ChildList).ToList();
+            var childColumns = columns.Where(static column => column.Kind == EditorKind.ChildList).ToList();
             var currentKeys = new HashSet<string>(StringComparer.Ordinal);
 
             for (var i = 0; i < current.Count; i++)
@@ -718,12 +1016,16 @@ public static class InfoDebugWindow
                     currentKeys.Add(key);
 
                 var diff = new RowDiff { Row = row, Key = key ?? string.Empty };
+                object? canonRow = null;
+                var hasCanon = key != null;
+                if (hasCanon)
+                    hasCanon = canonByKey.TryGetValue(key!, out canonRow);
 
-                if (key != null && canonByKey.TryGetValue(key, out var canonRow))
+                if (hasCanon)
                 {
                     foreach (var column in dataColumns)
                     {
-                        if (CellsEqual(column.Property, row, canonRow))
+                        if (CellsEqual(column.Property, row, canonRow!))
                             continue;
 
                         diff.ChangedProperties.Add(column.Name);
@@ -742,7 +1044,17 @@ public static class InfoDebugWindow
                     }
                 }
 
-                if (diff.ChangedCells > 0 || diff.Added)
+                foreach (var column in childColumns)
+                {
+                    var childDiff = ComputeChildList(column, row, hasCanon ? canonRow : null, added: !hasCanon, resolveChildIdentity);
+                    if (!childDiff.AnyChange)
+                        continue;
+
+                    diff.ChildDiffs[column.Name] = childDiff;
+                    result.ChangedCells += childDiff.ChangedCells;
+                }
+
+                if (diff.ChangedCells > 0 || diff.Added || diff.ChildDiffs.Count > 0)
                 {
                     result.ChangedRowIndices.Add(i);
                     result.ByIndex[i] = diff;
@@ -755,11 +1067,251 @@ public static class InfoDebugWindow
                     continue;
 
                 result.DeletedKeys.Add(pair.Key);
-                result.ChangedCells += dataColumns.Count;
+                var diff = new RowDiff { Row = pair.Value, Key = pair.Key };
+                diff.ChangedCells += dataColumns.Count;
+
+                foreach (var column in childColumns)
+                {
+                    var childDiff = ComputeChildList(column, null, pair.Value, added: false, resolveChildIdentity);
+                    if (!childDiff.AnyChange)
+                        continue;
+
+                    diff.ChildDiffs[column.Name] = childDiff;
+                    diff.ChangedCells += childDiff.ChangedCells;
+                }
+
+                result.ChangedCells += diff.ChangedCells;
+                result.DeletedByKey[pair.Key] = diff;
             }
 
             result.DeletedKeys.Sort(StringComparer.Ordinal);
             return result;
+        }
+
+        private static ChildListDiff ComputeChildList(
+            ColumnInfo column,
+            object? currentRow,
+            object? canonRow,
+            bool added,
+            Func<Type, string?>? resolveChildIdentity)
+        {
+            var elementType = column.ChildElementType ?? typeof(object);
+            var identity = Children.Resolve(elementType, resolveChildIdentity);
+
+            // Only readable scalar cells participate: a nested list at child depth stays read-only
+            // JSON and is neither compared nor counted as a changed cell.
+            var childColumns = BuildColumns(elementType, allowChildLists: false)
+                .Where(static child => child.Kind != EditorKind.None)
+                .ToList();
+
+            var diff = new ChildListDiff
+            {
+                PropertyName = column.Name,
+                IdentityProperty = identity.Label,
+                Positional = identity.Positional
+            };
+
+            var current = Children.ListOf(column.Property, currentRow);
+            var canon = added ? null : Children.ListOf(column.Property, canonRow);
+
+            // An added parent contributes every current child as added; a deleted parent contributes
+            // every canon child as deleted. Otherwise null vs non-null is a structural change.
+            if (added)
+            {
+                AddAll(diff, identity, childColumns, current, added: true);
+                return diff;
+            }
+
+            if (currentRow == null)
+            {
+                AddAll(diff, identity, childColumns, canon, added: false);
+                return diff;
+            }
+
+            if (current == null || canon == null)
+            {
+                if (!(current == null && canon == null))
+                {
+                    diff.Structural = true;
+                    diff.ChangedCells += 1;
+                    AddAll(diff, identity, childColumns, current, added: true);
+                    AddAll(diff, identity, childColumns, canon, added: false);
+                }
+
+                return diff;
+            }
+
+            var path = $"{column.Name}";
+            var currentIdentity = Children.ValidateList(identity, current, path);
+            var canonIdentity = Children.ValidateList(identity, canon, path);
+            if (!currentIdentity.Ok || !canonIdentity.Ok)
+            {
+                // Visible identity error. Never fall back to positional matching, and never claim
+                // a zero-change canon comparison.
+                diff.IdentityError = true;
+                diff.IdentityMessage = currentIdentity.Error ?? canonIdentity.Error
+                    ?? $"{path}: child identity is invalid";
+                return diff;
+            }
+
+            if (identity.Positional)
+                MatchPositional(diff, identity, childColumns, current, canon);
+            else
+                MatchNatural(diff, identity, childColumns, current, canon);
+
+            return diff;
+        }
+
+        private static void AddAll(
+            ChildListDiff diff, ChildIdentity identity, IReadOnlyList<ColumnInfo> childColumns, IList? rows, bool added)
+        {
+            if (rows == null)
+                return;
+
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var rowDiff = new ChildRowDiff
+                {
+                    Identity = Children.Label(identity, rows[i], i),
+                    Index = i,
+                    Added = added,
+                    Deleted = !added,
+                    ChangedCells = childColumns.Count
+                };
+
+                foreach (var column in childColumns)
+                    rowDiff.ChangedColumns.Add(column.Name);
+
+                (added ? diff.Rows : diff.Deleted).Add(rowDiff);
+                diff.ChangedCells += childColumns.Count;
+            }
+        }
+
+        private static void MatchNatural(
+            ChildListDiff diff, ChildIdentity identity, IReadOnlyList<ColumnInfo> childColumns, IList current, IList canon)
+        {
+            var canonByIdentity = new Dictionary<string, (object Row, int Index)>(StringComparer.Ordinal);
+            for (var j = 0; j < canon.Count; j++)
+            {
+                var id = Children.Label(identity, canon[j], j);
+                if (!canonByIdentity.ContainsKey(id))
+                    canonByIdentity[id] = (canon[j]!, j);
+            }
+
+            var matched = new HashSet<int>();
+            for (var i = 0; i < current.Count; i++)
+            {
+                var id = Children.Label(identity, current[i], i);
+                var rowDiff = new ChildRowDiff { Identity = id, Index = i };
+
+                if (canonByIdentity.TryGetValue(id, out var entry) && matched.Add(entry.Index))
+                {
+                    CompareColumns(childColumns, current[i], entry.Row, rowDiff);
+                    if (rowDiff.ChangedCells > 0)
+                    {
+                        diff.Rows.Add(rowDiff);
+                        diff.ChangedCells += rowDiff.ChangedCells;
+                    }
+                }
+                else
+                {
+                    rowDiff.Added = true;
+                    foreach (var column in childColumns)
+                        rowDiff.ChangedColumns.Add(column.Name);
+                    rowDiff.ChangedCells = childColumns.Count;
+                    diff.Rows.Add(rowDiff);
+                    diff.ChangedCells += rowDiff.ChangedCells;
+                }
+            }
+
+            for (var j = 0; j < canon.Count; j++)
+            {
+                if (matched.Contains(j))
+                    continue;
+
+                var rowDiff = new ChildRowDiff
+                {
+                    Identity = Children.Label(identity, canon[j], j),
+                    Index = j,
+                    Deleted = true,
+                    ChangedCells = childColumns.Count
+                };
+                foreach (var column in childColumns)
+                    rowDiff.ChangedColumns.Add(column.Name);
+
+                diff.Deleted.Add(rowDiff);
+                diff.ChangedCells += childColumns.Count;
+            }
+
+            // Pure reorder: identical membership and values, different order => one list change.
+            if (diff.ChangedCells == 0)
+            {
+                for (var i = 0; i < current.Count && i < canon.Count; i++)
+                {
+                    if (!string.Equals(
+                            Children.Label(identity, current[i], i),
+                            Children.Label(identity, canon[i], i),
+                            StringComparison.Ordinal))
+                    {
+                        diff.OrderOnly = true;
+                        diff.ChangedCells += 1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        private static void MatchPositional(
+            ChildListDiff diff, ChildIdentity identity, IReadOnlyList<ColumnInfo> childColumns, IList current, IList canon)
+        {
+            var max = Math.Max(current.Count, canon.Count);
+            for (var i = 0; i < max; i++)
+            {
+                var inCurrent = i < current.Count;
+                var inCanon = i < canon.Count;
+                var rowDiff = new ChildRowDiff { Identity = Children.Label(identity, inCurrent ? current[i] : null, i), Index = i };
+
+                if (inCurrent && inCanon)
+                {
+                    CompareColumns(childColumns, current[i], canon[i], rowDiff);
+                    if (rowDiff.ChangedCells > 0)
+                    {
+                        diff.Rows.Add(rowDiff);
+                        diff.ChangedCells += rowDiff.ChangedCells;
+                    }
+                }
+                else if (inCurrent)
+                {
+                    rowDiff.Added = true;
+                    rowDiff.ChangedCells = childColumns.Count;
+                    foreach (var column in childColumns)
+                        rowDiff.ChangedColumns.Add(column.Name);
+                    diff.Rows.Add(rowDiff);
+                    diff.ChangedCells += rowDiff.ChangedCells;
+                }
+                else
+                {
+                    rowDiff.Deleted = true;
+                    rowDiff.ChangedCells = childColumns.Count;
+                    foreach (var column in childColumns)
+                        rowDiff.ChangedColumns.Add(column.Name);
+                    diff.Deleted.Add(rowDiff);
+                    diff.ChangedCells += rowDiff.ChangedCells;
+                }
+            }
+        }
+
+        private static void CompareColumns(
+            IReadOnlyList<ColumnInfo> columns, object? left, object? right, ChildRowDiff rowDiff)
+        {
+            foreach (var column in columns)
+            {
+                if (CellsEqual(column.Property, left!, right!))
+                    continue;
+
+                rowDiff.ChangedColumns.Add(column.Name);
+                rowDiff.ChangedCells++;
+            }
         }
 
         private static bool CellsEqual(PropertyInfo property, object left, object right)
@@ -780,12 +1332,249 @@ public static class InfoDebugWindow
         }
     }
 
+    /// <summary>
+    /// Engine-free candidate validation shared by the parent table and every one-level child list.
+    /// A null child list is allowed (a child operation may initialize it); a null child row, a
+    /// blank/duplicate declared identity, or a scalar/constraint failure is an error that names the
+    /// parent property, child index and column.
+    /// </summary>
+    private static class Validation
+    {
+        public static string? ValidateCandidate(
+            Type infoType,
+            IReadOnlyList<ColumnInfo> columns,
+            IList candidate,
+            Func<Type, string?>? resolveChildIdentity)
+        {
+            if (!Keying.ValidateTableKeys(infoType, candidate, out var keyError))
+                return keyError;
+
+            foreach (var column in columns)
+            {
+                if (column.Kind == EditorKind.ChildList)
+                {
+                    var childError = ValidateChildColumn(column, candidate, resolveChildIdentity);
+                    if (childError != null)
+                        return childError;
+                    continue;
+                }
+
+                if (!column.CanEdit)
+                    continue;
+
+                foreach (var row in candidate)
+                {
+                    object? value;
+                    try
+                    {
+                        value = column.Property.GetValue(row);
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+
+                    if (!Codec.ValidateValue(column.ValueType, value, column.Field, out var error))
+                        return $"{column.Name}: {error}";
+                }
+            }
+
+            return null;
+        }
+
+        public static string? ValidateChildColumn(
+            ColumnInfo column, IList candidate, Func<Type, string?>? resolveChildIdentity)
+        {
+            var elementType = column.ChildElementType ?? typeof(object);
+            var childColumns = BuildColumns(elementType, allowChildLists: false);
+            var identity = Children.Resolve(elementType, resolveChildIdentity);
+
+            for (var i = 0; i < candidate.Count; i++)
+            {
+                var parent = candidate[i];
+                var list = Children.ListOf(column.Property, parent);
+                if (list == null)
+                    continue; // a null list is allowed; child operations may initialize it
+
+                var identityResult = Children.ValidateList(identity, list, column.Name);
+                if (!identityResult.Ok)
+                    return $"{column.Name}: {identityResult.Error}";
+
+                for (var c = 0; c < list.Count; c++)
+                {
+                    var child = list[c];
+                    if (child == null)
+                        return $"{column.Name}[{c}]: a child row is null";
+
+                    foreach (var childColumn in childColumns)
+                    {
+                        if (!childColumn.CanEdit)
+                            continue;
+
+                        object? value;
+                        try
+                        {
+                            value = childColumn.Property.GetValue(child);
+                        }
+                        catch (Exception ex)
+                        {
+                            return $"{column.Name}[{c}].{childColumn.Name}: value could not be read ({ex.GetType().Name})";
+                        }
+
+                        if (!Codec.ValidateValue(childColumn.ValueType, value, childColumn.Field, out var error))
+                            return $"{column.Name}[{c}].{childColumn.Name}: {error}";
+                    }
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Engine-free child mutation body shared by every child handler: the reference guard first,
+    /// then re-resolve the detached parent by key and the child by declared identity/index, mutate
+    /// only the detached candidate, and revalidate. Also drives the managed tests directly.
+    /// </summary>
+    private static class ChildEdit
+    {
+        /// <summary>Re-resolves the displayed published parent reference and requires it to match.</summary>
+        public static string? Guard(TabState tab, string parentKey, object parentReference, IList current)
+        {
+            var index = Keying.IndexOfKey(tab.InfoType, current, parentKey);
+            if (index < 0)
+                return "the parent row is no longer present; refresh and retry";
+            if (!ReferenceEquals(current[index], parentReference))
+                return "the displayed parent row changed since this editor was shown; refresh and retry";
+            return null;
+        }
+
+        /// <summary>
+        /// The index of the targeted child in <paramref name="list"/>. Rows are matched by the
+        /// declared identity when the whole list is currently valid; when the list's identity is
+        /// invalid (or positional), the explicit <paramref name="fallbackIndex"/> is used — this is
+        /// the in-window <em>positional repair</em> path, and validation still refuses any write
+        /// until the complete sibling list becomes valid again.
+        /// </summary>
+        public static int IndexOfChild(ChildIdentity identity, IList list, string label, int fallbackIndex)
+        {
+            if (identity.Positional || !Children.ValidateList(identity, list, "items").Ok)
+                return fallbackIndex >= 0 && fallbackIndex < list.Count ? fallbackIndex : -1;
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (string.Equals(Children.Label(identity, list[i], i), label, StringComparison.Ordinal))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>Scans the whole list for an equal declared identity (independent of validity).</summary>
+        public static bool HasIdentity(ChildIdentity identity, IList list, string value)
+        {
+            if (identity.Positional)
+                return false;
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (string.Equals(Children.Label(identity, list[i], i), value, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        public static string? SetCell(
+            TabState tab, ChildContext context, string label, int index, ColumnInfo column, object? value,
+            IList candidate, IList current, out string? oldText)
+        {
+            oldText = null;
+            var guard = Guard(tab, context.ParentKey, context.ParentReference, current);
+            if (guard != null)
+                return guard;
+
+            var parentIndex = Keying.IndexOfKey(tab.InfoType, candidate, context.ParentKey);
+            if (parentIndex < 0)
+                return "the parent row is no longer present; refresh and retry";
+
+            var list = Children.ListOf(context.Column.Property, candidate[parentIndex]);
+            if (list == null)
+                return "the child list is no longer present; refresh and retry";
+
+            var childIndex = IndexOfChild(context.Identity, list, label, index);
+            if (childIndex < 0)
+                return "the child row is no longer present; refresh and retry";
+
+            oldText = FormatCellValue(column.Property.GetValue(list[childIndex]));
+            column.Property.SetValue(list[childIndex], value);
+            return Validation.ValidateCandidate(tab.InfoType, tab.Columns, candidate, tab.ResolveChildIdentity);
+        }
+
+        public static string? Add(
+            TabState tab, ChildContext context, object? identityValue, object instance,
+            IList candidate, IList current)
+        {
+            var guard = Guard(tab, context.ParentKey, context.ParentReference, current);
+            if (guard != null)
+                return guard;
+
+            var parentIndex = Keying.IndexOfKey(tab.InfoType, candidate, context.ParentKey);
+            if (parentIndex < 0)
+                return "the parent row is no longer present; refresh and retry";
+
+            var parent = candidate[parentIndex];
+            var list = Children.ListOf(context.Column.Property, parent);
+            if (list == null)
+            {
+                var listType = typeof(List<>).MakeGenericType(context.ElementType);
+                list = (IList)Activator.CreateInstance(listType)!;
+                context.Column.Property.SetValue(parent, list);
+            }
+
+            if (!context.Identity.Positional)
+            {
+                context.Identity.Property!.SetValue(instance, identityValue);
+                var identityText = Keying.FormatKeyValue(identityValue);
+                if (identityText != null && HasIdentity(context.Identity, list, identityText))
+                    return $"duplicate child identity '{identityText}'";
+            }
+
+            list.Add(instance);
+            return Validation.ValidateCandidate(tab.InfoType, tab.Columns, candidate, tab.ResolveChildIdentity);
+        }
+
+        public static string? Remove(
+            TabState tab, ChildContext context, string label, int index, IList candidate, IList current)
+        {
+            var guard = Guard(tab, context.ParentKey, context.ParentReference, current);
+            if (guard != null)
+                return guard;
+
+            var parentIndex = Keying.IndexOfKey(tab.InfoType, candidate, context.ParentKey);
+            if (parentIndex < 0)
+                return "the parent row is no longer present; refresh and retry";
+
+            var list = Children.ListOf(context.Column.Property, candidate[parentIndex]);
+            if (list == null)
+                return "the child list is no longer present; refresh and retry";
+
+            var childIndex = IndexOfChild(context.Identity, list, label, index);
+            if (childIndex < 0)
+                return "the child row is no longer present; refresh and retry";
+
+            list.RemoveAt(childIndex);
+            return Validation.ValidateCandidate(tab.InfoType, tab.Columns, candidate, tab.ResolveChildIdentity);
+        }
+    }
+
     private sealed class RowDiff
     {
         public object Row = null!;
         public string Key = string.Empty;
         public bool Added;
         public readonly HashSet<string> ChangedProperties = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, ChildListDiff> ChildDiffs = new(StringComparer.Ordinal);
         public int ChangedCells;
     }
 
@@ -795,6 +1584,7 @@ public static class InfoDebugWindow
         public int ChangedCells;
         public readonly List<int> ChangedRowIndices = new();
         public readonly Dictionary<int, RowDiff> ByIndex = new();
+        public readonly Dictionary<string, RowDiff> DeletedByKey = new(StringComparer.Ordinal);
         public readonly List<string> DeletedKeys = new();
     }
 
@@ -884,7 +1674,9 @@ public static class InfoDebugWindow
 
         /// <summary>
         /// Deterministic changed-cell TSV: current-row order, ordinal column order, deleted rows
-        /// last (ordinal key order), missing cells marked explicitly.
+        /// last (ordinal key order), missing cells marked explicitly. One-level child lists emit
+        /// their own rows under <c>&lt;key&gt;.&lt;property&gt;[&lt;identity&gt;].&lt;field&gt;</c>
+        /// (positional mode uses <c>[index]</c>), plus explicit identity/order/structure diagnostics.
         /// </summary>
         public static string BuildChanges(
             Type infoType,
@@ -897,30 +1689,30 @@ public static class InfoDebugWindow
             var builder = new StringBuilder();
             builder.Append("#key\tproperty\tcanon\tcurrent\n");
             var keyProperty = Keying.FindKey(infoType);
-            var dataColumns = columns.Where(static column => !column.IsKey).ToList();
+            var dataColumns = columns.Where(static column => !column.IsKey && column.Kind != EditorKind.ChildList).ToList();
+            var childColumns = columns.Where(static column => column.Kind == EditorKind.ChildList).ToList();
 
             foreach (var rowIndex in diff.ChangedRowIndices)
             {
                 var row = current[rowIndex];
                 var key = keyProperty != null ? Keying.FormatKey(keyProperty, row) ?? string.Empty : string.Empty;
                 var rowDiff = diff.ByIndex[rowIndex];
+                object? rowCanon = null;
+                var hasRowCanon = canonByKey.TryGetValue(key, out rowCanon);
                 foreach (var column in dataColumns)
                 {
                     if (!rowDiff.ChangedProperties.Contains(column.Name))
                         continue;
 
                     var currentText = FormatCellValue(column.Property.GetValue(row));
-                    string canonText;
-                    if (rowDiff.Added || !canonByKey.TryGetValue(key, out var canonRow))
-                        canonText = missing;
-                    else
-                        canonText = FormatCellValue(column.Property.GetValue(canonRow));
+                    var canonText = rowDiff.Added || !hasRowCanon
+                        ? missing
+                        : FormatCellValue(column.Property.GetValue(rowCanon!));
 
-                    builder.Append(Escape(key)).Append('\t')
-                        .Append(Escape(column.Name)).Append('\t')
-                        .Append(Escape(canonText)).Append('\t')
-                        .Append(Escape(currentText)).Append('\n');
+                    AppendChange(builder, key, column.Name, canonText, currentText);
                 }
+
+                AppendChildChanges(builder, key, childColumns, rowDiff, row, rowCanon, missing);
             }
 
             foreach (var deletedKey in diff.DeletedKeys)
@@ -928,16 +1720,108 @@ public static class InfoDebugWindow
                 if (!canonByKey.TryGetValue(deletedKey, out var canonRow))
                     continue;
 
+                var rowDiff = diff.DeletedByKey.TryGetValue(deletedKey, out var deleted) ? deleted : null;
                 foreach (var column in dataColumns)
                 {
-                    builder.Append(Escape(deletedKey)).Append('\t')
-                        .Append(Escape(column.Name)).Append('\t')
-                        .Append(Escape(FormatCellValue(column.Property.GetValue(canonRow)))).Append('\t')
-                        .Append(Escape(missing)).Append('\n');
+                    var canonText = FormatCellValue(column.Property.GetValue(canonRow));
+                    AppendChange(builder, deletedKey, column.Name, canonText, missing);
                 }
+
+                if (rowDiff != null)
+                    AppendChildChanges(builder, deletedKey, childColumns, rowDiff, null, canonRow, missing);
             }
 
             return builder.ToString();
+        }
+
+        private static void AppendChildChanges(
+            StringBuilder builder,
+            string key,
+            IReadOnlyList<ColumnInfo> childColumns,
+            RowDiff rowDiff,
+            object? currentRow,
+            object? canonRow,
+            string missing)
+        {
+            foreach (var column in childColumns)
+            {
+                if (!rowDiff.ChildDiffs.TryGetValue(column.Name, out var childDiff))
+                    continue;
+
+                var identity = column.ChildElementType ?? typeof(object);
+                var currentList = Children.ListOf(column.Property, currentRow);
+                var canonList = Children.ListOf(column.Property, canonRow);
+
+                if (childDiff.IdentityError)
+                {
+                    AppendChange(builder, key, $"{column.Name}[identity]",
+                        childDiff.IdentityProperty, childDiff.IdentityMessage ?? "invalid child identity");
+                    continue;
+                }
+
+                if (childDiff.Structural)
+                    AppendChange(builder, key, $"{column.Name}[structure]", "missing/null",
+                        currentRow == null ? "missing" : "present");
+
+                if (childDiff.OrderOnly)
+                    AppendChange(builder, key, $"{column.Name}[order]", "canon-order", "reordered");
+
+                foreach (var childRowDiff in childDiff.Rows)
+                {
+                    var path = $"{column.Name}[{childRowDiff.Identity}]";
+                    foreach (var changedColumn in childRowDiff.ChangedColumns)
+                    {
+                        var canonText = childRowDiff.Added
+                            ? missing
+                            : FormatChildCell(identity, changedColumn, canonList, childRowDiff.Index);
+                        var currentText = FormatChildCell(identity, changedColumn, currentList, childRowDiff.Index);
+                        AppendChange(builder, key, $"{path}.{changedColumn}", canonText, currentText);
+                    }
+                }
+
+                foreach (var childRowDiff in childDiff.Deleted)
+                {
+                    var path = $"{column.Name}[{childRowDiff.Identity}]";
+                    foreach (var changedColumn in childRowDiff.ChangedColumns)
+                    {
+                        var canonText = FormatChildCell(identity, changedColumn, canonList, childRowDiff.Index);
+                        AppendChange(builder, key, $"{path}.{changedColumn}", canonText, missing);
+                    }
+                }
+            }
+        }
+
+        private static string FormatChildCell(
+            Type elementType, string childColumnName, IList? list, int index)
+        {
+            const string missing = "<missing>";
+            if (list == null || index < 0 || index >= list.Count)
+                return missing;
+
+            var property = elementType.GetProperty(childColumnName, BindingFlags.Public | BindingFlags.Instance);
+            if (property == null)
+                return missing;
+
+            var row = list[index];
+            if (row == null)
+                return missing;
+
+            try
+            {
+                return FormatCellValue(property.GetValue(row));
+            }
+            catch (Exception)
+            {
+                return missing;
+            }
+        }
+
+        private static void AppendChange(StringBuilder builder, string key, string property, string canon, string current)
+        {
+            builder.Append(Escape(key)).Append('\t')
+                .Append(Escape(property)).Append('\t')
+                .Append(Escape(canon)).Append('\t')
+                .Append(Escape(current)).Append('\n');
         }
     }
 
@@ -1104,6 +1988,8 @@ public static class InfoDebugWindow
     {
         public enum Stage
         {
+            /// <summary>Refused before any work: the editing lock is engaged after a failed recovery.</summary>
+            Locked,
             Serialize,
             Mutate,
             Validate,
@@ -1115,6 +2001,10 @@ public static class InfoDebugWindow
         public sealed class Result
         {
             public bool Success;
+
+            /// <summary>True when the commit was refused by the editing lock (nothing was written).</summary>
+            public bool Locked;
+
             public bool WriteFailed;
             public bool ReloadFailed;
             public bool RecoveryFailed;
@@ -1250,6 +2140,102 @@ public static class InfoDebugWindow
         }
     }
 
+    /// <summary>
+    /// Editing-lock decision and the guarded commit entry point. Every parent and child handler
+    /// funnels through <see cref="CommitGuarded"/>, so a locked editor (after a failed recovery) can
+    /// never serialize, write or reload, whatever the call site — including a confirmation dialog
+    /// that was already open when the lock engaged.
+    /// </summary>
+    private static class Editing
+    {
+        public const string DisabledMessage =
+            "Editing is disabled after a failed recovery; Reload or Revert first.";
+
+        public static bool IsLocked(bool editingDisabled) => editingDisabled;
+
+        /// <summary>A refused, write-free result for a commit attempted while editing is locked.</summary>
+        public static Transaction.Result Refused() => new()
+        {
+            Success = false,
+            Locked = true,
+            FailedStage = Transaction.Stage.Locked,
+            Error = DisabledMessage
+        };
+
+        /// <summary>
+        /// True when the child pane's editors / Add / per-row Delete are enabled. An invalid declared
+        /// identity does NOT disable editing: repair happens in-window under the warning, and the
+        /// reference guard plus validation refuse any write until the whole sibling list is valid.
+        /// </summary>
+        public static bool ChildEditingAllowed(bool bindingPresent, bool editingDisabled)
+            => bindingPresent && !editingDisabled;
+    }
+
+    /// <summary>
+    /// The single guarded commit entry point: refuses without touching the writer when editing is
+    /// locked, otherwise runs the shared clone→mutate→validate→write→Reload transaction.
+    /// </summary>
+    private static Transaction.Result CommitGuarded(
+        bool editingDisabled,
+        InfoDebugTableBinding binding,
+        Type infoType,
+        List<object> currentRows,
+        Func<IList, IList, string?> mutate,
+        Func<bool> reload)
+    {
+        if (Editing.IsLocked(editingDisabled))
+            return Editing.Refused();
+
+        return Transaction.Commit(
+            binding.serializer,
+            infoType,
+            currentRows,
+            candidate => mutate(candidate, currentRows),
+            binding.writeOverride,
+            reload);
+    }
+
+    /// <summary>
+    /// One open child-delete confirmation. The pending child identity/index and the panel visibility
+    /// are a single managed unit, so a lock, a tab change or a context close resets both together and
+    /// the reset is directly testable without a native <c>Control</c>.
+    /// </summary>
+    private sealed class ChildDeleteConfirmation
+    {
+        public string? PendingIdentity;
+        public int PendingIndex = -1;
+        public bool Open;
+
+        public void OpenFor(string identity, int index)
+        {
+            PendingIdentity = identity;
+            PendingIndex = index;
+            Open = true;
+        }
+
+        public void Reset()
+        {
+            PendingIdentity = null;
+            PendingIndex = -1;
+            Open = false;
+        }
+    }
+
+    /// <summary>
+    /// Resets an open child-delete confirmation whenever editing is locked (or unconditionally when
+    /// <paramref name="force"/> is set). Returns true when a reset happened.
+    /// </summary>
+    private static bool ResetChildConfirmation(ChildDeleteConfirmation confirmation, bool editingDisabled, bool force = false)
+    {
+        if (!editingDisabled && !force)
+            return false;
+        if (!confirmation.Open && confirmation.PendingIdentity == null)
+            return false;
+
+        confirmation.Reset();
+        return true;
+    }
+
     /// <summary>Per-window state and behaviour. One instance per built window; no static state.</summary>
     private sealed class Viewer
     {
@@ -1276,6 +2262,16 @@ public static class InfoDebugWindow
         private readonly VBoxContainer _detailPane;
         private readonly Button _backButton;
         private readonly RichTextLabel _detailText;
+        private readonly VBoxContainer _childPane;
+        private readonly Button _childBackButton;
+        private readonly Label _childBreadcrumb;
+        private readonly Label _childIdentityNote;
+        private readonly Button _childAddButton;
+        private readonly LineEdit _childAddInput;
+        private readonly Label _childAddError;
+        private readonly GridContainer _childGrid;
+        private readonly VBoxContainer _childConfirmPanel;
+        private Label _childConfirmText = null!;
 
         private readonly List<Subscription> _subscriptions = new();
 
@@ -1291,6 +2287,8 @@ public static class InfoDebugWindow
         private bool _refreshQueued;
         private bool _exiting;
         private string? _pendingDeleteKey;
+        private ChildContext? _childContext;
+        private readonly ChildDeleteConfirmation _childDelete = new();
 
         private Viewport? _viewport;
 
@@ -1423,6 +2421,75 @@ public static class InfoDebugWindow
             _detailText.AddThemeFontSizeOverride("normal_font_size", ViewerFontSize);
             _detailText.AddThemeFontSizeOverride("mono_font_size", ViewerFontSize);
             _detailPane.AddChild(_detailText);
+
+            _childPane = new VBoxContainer
+            {
+                Visible = false,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                SizeFlagsVertical = Control.SizeFlags.ExpandFill
+            };
+            _childPane.AddThemeConstantOverride("separation", 6);
+
+            var crumbRow = new HBoxContainer();
+            crumbRow.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            _childBackButton = new Button { Text = "‹ parent", FocusMode = Control.FocusModeEnum.None };
+            _childBackButton.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childBackButton.Pressed += CloseChildDetail;
+            crumbRow.AddChild(_childBackButton);
+
+            _childBreadcrumb = new Label
+            {
+                ClipText = true,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            _childBreadcrumb.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            crumbRow.AddChild(_childBreadcrumb);
+            _childPane.AddChild(crumbRow);
+
+            _childIdentityNote = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+            _childIdentityNote.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childPane.AddChild(_childIdentityNote);
+
+            var childAddRow = new HBoxContainer();
+            childAddRow.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            _childAddInput = new LineEdit { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, PlaceholderText = "identity" };
+            _childAddInput.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childAddInput.TextSubmitted += _ => CommitChildAdd();
+            childAddRow.AddChild(_childAddInput);
+            _childAddButton = NewActionButton("Add child", CommitChildAdd);
+            childAddRow.AddChild(_childAddButton);
+            _childPane.AddChild(childAddRow);
+
+            _childAddError = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+            _childAddError.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childPane.AddChild(_childAddError);
+
+            _childConfirmPanel = new VBoxContainer { Visible = false };
+            _childConfirmPanel.AddThemeConstantOverride("separation", 6);
+            _childConfirmText = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+            _childConfirmText.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childConfirmPanel.AddChild(_childConfirmText);
+            var childConfirmRow = new HBoxContainer();
+            childConfirmRow.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            childConfirmRow.AddChild(NewActionButton("Delete child", CommitChildDelete));
+            childConfirmRow.AddChild(NewActionButton("Cancel", CloseChildConfirm));
+            _childConfirmPanel.AddChild(childConfirmRow);
+            _childPane.AddChild(_childConfirmPanel);
+
+            var childScroll = new ScrollContainer
+            {
+                ClipContents = true,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+                HorizontalScrollMode = ScrollContainer.ScrollMode.Auto,
+                VerticalScrollMode = ScrollContainer.ScrollMode.Auto
+            };
+            _childGrid = new GridContainer { Columns = 1 };
+            childScroll.AddChild(_childGrid);
+            _childPane.AddChild(childScroll);
+
+            _detailPane.AddChild(_childPane);
 
             Root.TreeEntered += OnTreeEntered;
             Root.TreeExiting += OnTreeExiting;
@@ -1683,8 +2750,9 @@ public static class InfoDebugWindow
             _suppressTabChanged = false;
 
             _selectedKey = previousKey;
-            _narrowDetailOpen = false;
+            _narrowDetailOpen = _childContext != null;
             _detailText.Text = string.Empty;
+            RevalidateChildContext();
 
             UpdateTitle();
             UpdateStatus();
@@ -1698,6 +2766,7 @@ public static class InfoDebugWindow
                 Manager = manager,
                 Binding = ResolveBindingFor(_resolveBinding, manager)
             };
+            tab.ResolveChildIdentity = tab.Binding?.resolveChildIdentity;
 
             try
             {
@@ -1771,7 +2840,8 @@ public static class InfoDebugWindow
                 tab.CanonKnown = false;
             }
 
-            tab.Diff = Diffing.Compute(tab.InfoType, tab.Columns, tab.Rows, tab.CanonByKey, tab.CanonKnown);
+            tab.Diff = Diffing.ComputeSectioned(
+                tab.InfoType, tab.Columns, tab.Rows, tab.CanonByKey, tab.CanonKnown, tab.ResolveChildIdentity);
         }
 
         private static IList DeserializeRows(ISerializer serializer, Type infoType, byte[] bytes)
@@ -1794,6 +2864,11 @@ public static class InfoDebugWindow
             _selectedTab = -1;
             _selectedKey = null;
             _narrowDetailOpen = false;
+            _childContext = null;
+            _childDelete.Reset();
+            _childPane.Visible = false;
+            _childConfirmPanel.Visible = false;
+            _detailText.Visible = true;
             _detailText.Text = string.Empty;
 
             ClearChildren(_tabContainer);
@@ -1977,6 +3052,9 @@ public static class InfoDebugWindow
             foreach (var column in tab.Columns)
             {
                 var control = BuildCell(tab, visible, column, editable);
+
+                // Parent every cell: a built-but-unparented editor is invisible and unreachable.
+                tab.Grid.AddChild(control);
                 controls.Add(control);
             }
 
@@ -1985,6 +3063,9 @@ public static class InfoDebugWindow
 
         private Control BuildCell(TabState tab, VisibleRow visible, ColumnInfo column, bool editable)
         {
+            if (column.Kind == EditorKind.ChildList)
+                return BuildChildCell(tab, visible, column, editable);
+
             object? value = null;
             try
             {
@@ -2009,7 +3090,7 @@ public static class InfoDebugWindow
 
             Control editor;
             if (editable && !visible.Deleted && !_editingDisabled && column.CanEdit)
-                editor = BuildEditor(tab, column, visible, value);
+                editor = BuildEditor(column, value, ParentEditorHost(tab, visible.Key));
             else
                 editor = BuildPlainLabel(value);
 
@@ -2063,7 +3144,25 @@ public static class InfoDebugWindow
             };
         }
 
-        private Control BuildEditor(TabState tab, ColumnInfo column, VisibleRow visible, object? value)
+        /// <summary>
+        /// Commit target for one editor. The parent grid and the child mini-table both reuse
+        /// <see cref="BuildEditor"/> through this adapter: it parses/validates with the shared
+        /// <see cref="Codec"/> and delegates only the final detached commit, so no conversion or
+        /// signal wiring is duplicated.
+        /// </summary>
+        private sealed class EditorHost
+        {
+            public Action<ColumnInfo, object?> CommitValue = null!;
+            public Action<LineEdit, string?> ShowError = null!;
+        }
+
+        private EditorHost ParentEditorHost(TabState tab, string rowKey) => new()
+        {
+            CommitValue = (column, value) => CommitCell(tab, column, rowKey, value),
+            ShowError = ShowCellError
+        };
+
+        private Control BuildEditor(ColumnInfo column, object? value, EditorHost host)
         {
             switch (column.Kind)
             {
@@ -2082,7 +3181,7 @@ public static class InfoDebugWindow
                     {
                         if (suppress)
                             return;
-                        CommitCell(tab, column, visible.Key, pressed);
+                        host.CommitValue(column, pressed);
                     };
                     suppress = false;
                     return checkBox;
@@ -2109,7 +3208,7 @@ public static class InfoDebugWindow
                         if (suppress)
                             return;
                         var name = names[(int)selected];
-                        CommitCell(tab, column, visible.Key, Enum.Parse(column.ValueType, name));
+                        host.CommitValue(column, Enum.Parse(column.ValueType, name));
                     };
                     suppress = false;
                     return optionButton;
@@ -2121,8 +3220,18 @@ public static class InfoDebugWindow
                     row.AddThemeConstantOverride("separation", 4);
                     var xInput = NewCellLineEdit(pair.X.ToString(CultureInfo.InvariantCulture));
                     var yInput = NewCellLineEdit(pair.Y.ToString(CultureInfo.InvariantCulture));
-                    xInput.TextSubmitted += _ => CommitVector2I(tab, column, visible.Key, xInput, yInput);
-                    yInput.TextSubmitted += _ => CommitVector2I(tab, column, visible.Key, xInput, yInput);
+                    Action submit = () =>
+                    {
+                        if (!Codec.TryParseVector2I(xInput.Text, yInput.Text, out var parsed, out var error))
+                        {
+                            host.ShowError(xInput, error);
+                            return;
+                        }
+
+                        host.CommitValue(column, parsed);
+                    };
+                    xInput.TextSubmitted += _ => submit();
+                    yInput.TextSubmitted += _ => submit();
                     row.AddChild(xInput);
                     row.AddChild(yInput);
                     return row;
@@ -2131,7 +3240,16 @@ public static class InfoDebugWindow
                 case EditorKind.Text:
                 {
                     var lineEdit = NewCellLineEdit(ScalarText(value));
-                    lineEdit.TextSubmitted += text => CommitCellText(tab, column, visible.Key, lineEdit, text);
+                    lineEdit.TextSubmitted += text =>
+                    {
+                        if (!Codec.TryParse(column.ValueType, text, column.Field, out var parsed, out var error))
+                        {
+                            host.ShowError(lineEdit, error);
+                            return;
+                        }
+
+                        host.CommitValue(column, parsed);
+                    };
                     return lineEdit;
                 }
                 default:
@@ -2151,28 +3269,6 @@ public static class InfoDebugWindow
             return lineEdit;
         }
 
-        private void CommitCellText(TabState tab, ColumnInfo column, string rowKey, LineEdit lineEdit, string text)
-        {
-            if (!Codec.TryParse(column.ValueType, text, column.Field, out var value, out var error))
-            {
-                ShowCellError(lineEdit, error);
-                return;
-            }
-
-            CommitCell(tab, column, rowKey, value);
-        }
-
-        private void CommitVector2I(TabState tab, ColumnInfo column, string rowKey, LineEdit xInput, LineEdit yInput)
-        {
-            if (!Codec.TryParseVector2I(xInput.Text, yInput.Text, out var value, out var error))
-            {
-                ShowCellError(xInput, error);
-                return;
-            }
-
-            CommitCell(tab, column, rowKey, value);
-        }
-
         private void CommitCell(TabState tab, ColumnInfo column, string rowKey, object? value)
         {
             if (tab.Binding == null)
@@ -2180,7 +3276,7 @@ public static class InfoDebugWindow
 
             if (_editingDisabled)
             {
-                FlashStatus("Editing is disabled after a failed recovery; Reload or Revert first.");
+                FlashStatus(Editing.DisabledMessage);
                 return;
             }
 
@@ -2216,7 +3312,7 @@ public static class InfoDebugWindow
 
             if (_editingDisabled)
             {
-                ShowAddError("Editing is disabled after a failed recovery; Reload or Revert first.");
+                ShowAddError(Editing.DisabledMessage);
                 return;
             }
 
@@ -2293,36 +3389,15 @@ public static class InfoDebugWindow
         }
 
         private string? ValidateCandidate(TabState tab, IList candidate)
-        {
-            if (!Keying.ValidateTableKeys(tab.InfoType, candidate, out var keyError))
-                return keyError;
-
-            foreach (var column in tab.Columns)
-            {
-                if (!column.CanEdit)
-                    continue;
-
-                foreach (var row in candidate)
-                {
-                    object? value;
-                    try
-                    {
-                        value = column.Property.GetValue(row);
-                    }
-                    catch (Exception)
-                    {
-                        continue;
-                    }
-
-                    if (!Codec.ValidateValue(column.ValueType, value, column.Field, out var error))
-                        return $"{column.Name}: {error}";
-                }
-            }
-
-            return null;
-        }
+            => Validation.ValidateCandidate(tab.InfoType, tab.Columns, candidate, tab.ResolveChildIdentity);
 
         private Transaction.Result? RunCommit(TabState tab, Func<IList, string?> mutate)
+            => RunCommitCore(tab, (candidate, _) => mutate(candidate));
+
+        private Transaction.Result? RunCommitCurrent(TabState tab, Func<IList, IList, string?> mutate)
+            => RunCommitCore(tab, mutate);
+
+        private Transaction.Result? RunCommitCore(TabState tab, Func<IList, IList, string?> mutate)
         {
             if (tab.Binding == null)
                 return null;
@@ -2343,12 +3418,14 @@ public static class InfoDebugWindow
             Transaction.Result result;
             try
             {
-                result = Transaction.Commit(
-                    tab.Binding.serializer,
+                // Single guarded entry point: this refuses without touching the writer whenever the
+                // editing lock is engaged, so no parent or child handler can slip a write through.
+                result = CommitGuarded(
+                    _editingDisabled,
+                    tab.Binding,
                     tab.InfoType,
                     currentRows,
                     mutate,
-                    tab.Binding.writeOverride,
                     tab.Manager.Reload);
             }
             finally
@@ -2356,8 +3433,22 @@ public static class InfoDebugWindow
                 _selfCommit = false;
             }
 
+            if (result.Locked)
+            {
+                CloseConfirmPanel();
+                CloseChildConfirm();
+                FlashStatus(result.Error ?? Editing.DisabledMessage);
+                return result;
+            }
+
             if (result.RecoveryFailed)
+            {
+                // The lock engages here: any open confirmation (parent or child) must be reset so it
+                // cannot write after the recovery failure.
                 _editingDisabled = true;
+                CloseConfirmPanel();
+                CloseChildConfirm();
+            }
 
             if (result.Success)
             {
@@ -2502,6 +3593,7 @@ public static class InfoDebugWindow
 
         private void SelectRow(TabState tab, VisibleRow visible)
         {
+            CloseChildDetail();
             _selectedKey = visible.Key;
             _narrowDetailOpen = true;
             _detailText.Text = SerializeDetail(tab, visible);
@@ -2511,6 +3603,12 @@ public static class InfoDebugWindow
 
         private void OnBack()
         {
+            if (_childContext != null)
+            {
+                CloseChildDetail();
+                return;
+            }
+
             _narrowDetailOpen = false;
             ApplyResponsive(CurrentViewportSize());
         }
@@ -2551,6 +3649,517 @@ public static class InfoDebugWindow
             }
         }
 
+        // ---- child drill-down -----------------------------------------------
+
+        /// <summary>
+        /// The parent grid cell for a one-level child list: a drill-down button when the tab has an
+        /// editing capability, a read-only <c>List[N]</c> label otherwise. Never a JSON object.
+        /// </summary>
+        private Control BuildChildCell(TabState tab, VisibleRow visible, ColumnInfo column, bool editable)
+        {
+            var wrapper = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+            wrapper.AddThemeConstantOverride("separation", 0);
+
+            var list = Children.ListOf(column.Property, visible.Row);
+            var count = list?.Count ?? 0;
+            var changed = tab.Diff != null && tab.Diff.ByIndex.TryGetValue(visible.Index, out var diff)
+                && diff.ChildDiffs.ContainsKey(column.Name);
+
+            if (editable && !visible.Deleted && !_editingDisabled)
+            {
+                var button = new Button
+                {
+                    Text = list == null ? $"{column.Name} (null) ▸" : $"{column.Name}[{count}] ▸",
+                    Flat = true,
+                    FocusMode = Control.FocusModeEnum.None,
+                    CustomMinimumSize = new Vector2(CellWidth, 0),
+                    SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+                };
+                button.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                button.Pressed += () => OpenChildDetail(tab, visible, column);
+                wrapper.AddChild(button);
+            }
+            else
+            {
+                wrapper.AddChild(BuildPlainLabel(list == null ? "null" : $"{column.Name}[{count}]"));
+            }
+
+            if (changed && tab.CanonKnown)
+            {
+                var comparison = new Label
+                {
+                    Text = "≠ child rows",
+                    ClipText = true,
+                    TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
+                    MouseFilter = Control.MouseFilterEnum.Ignore
+                };
+                comparison.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                comparison.Modulate = new Color(1f, 0.65f, 0.35f, 1f);
+                wrapper.AddChild(comparison);
+            }
+
+            return wrapper;
+        }
+
+        private void OpenChildDetail(TabState tab, VisibleRow visible, ColumnInfo column)
+        {
+            if (tab.Binding == null || column.ChildElementType == null)
+                return;
+
+            _selectedKey = visible.Key;
+            _narrowDetailOpen = true;
+            _childDelete.Reset();
+            _childContext = new ChildContext
+            {
+                Tab = tab,
+                ParentKey = visible.Key,
+                ParentReference = visible.Row,
+                Column = column,
+                ElementType = column.ChildElementType,
+                ChildColumns = BuildColumns(column.ChildElementType, allowChildLists: false),
+                Identity = Children.Resolve(column.ChildElementType, tab.ResolveChildIdentity)
+            };
+
+            BuildChildUi();
+            RebuildTabUiPreservingTab();
+            HighlightSelectedRow();
+            UpdateStatus();
+            ApplyResponsive(CurrentViewportSize());
+        }
+
+        /// <summary>
+        /// Rebuilds the parent tab grids while suppressing and restoring the tab selection: adding
+        /// new tab contents resets <c>CurrentTab</c> and would otherwise fire <see cref="OnTabChanged"/>,
+        /// which clears the open child context.
+        /// </summary>
+        private void RebuildTabUiPreservingTab()
+        {
+            var index = _selectedTab;
+            _suppressTabChanged = true;
+            try
+            {
+                BuildTabUi();
+                if (index >= 0 && index < _tabContainer.GetTabCount())
+                    _tabContainer.CurrentTab = index;
+            }
+            finally
+            {
+                _suppressTabChanged = false;
+            }
+        }
+
+        private void CloseChildDetail()
+        {
+            _childContext = null;
+            _childDelete.Reset();
+            _narrowDetailOpen = false;
+            if (_childConfirmPanel != null)
+                _childConfirmPanel.Visible = false;
+            if (_childPane != null)
+                _childPane.Visible = false;
+            if (_detailText != null)
+            {
+                _detailText.Visible = true;
+                _detailText.Text = string.Empty;
+            }
+
+            ReserializeParentDetail();
+        }
+
+        /// <summary>
+        /// Restores the parent JSON in the detail pane after leaving a child table, using the
+        /// currently published row (never a stale snapshot). No-op when there is no selection.
+        /// </summary>
+        private void ReserializeParentDetail()
+        {
+            var tab = SelectedTabState();
+            if (tab == null || _selectedKey == null)
+                return;
+
+            var visible = tab.Visible.Find(v => string.Equals(v.Key, _selectedKey, StringComparison.Ordinal));
+            var row = visible?.Row ?? (tab.CanonByKey.TryGetValue(_selectedKey, out var canon) ? canon : null);
+            if (row == null)
+                return;
+
+            _detailText.Text = SerializeDetail(tab, visible ?? new VisibleRow(-1, row, _selectedKey));
+        }
+
+        private void BuildChildUi()
+        {
+            ClearChildren(_childGrid);
+            var context = _childContext!;
+            var list = Children.ListOf(context.Column.Property, context.ParentReference);
+            var identity = context.Identity;
+            var childColumns = context.ChildColumns;
+
+            _childBreadcrumb.Text = $"{context.Tab.InfoType.Name} · {context.ParentKey} · {context.Column.Name}";
+            var identityText = identity.Positional
+                ? $"identity: explicit positional ({identity.Label}); rows match by index"
+                : identity.Source == ChildIdentitySource.InfoKey
+                    ? $"identity: {identity.Property!.Name} ([InfoKey])"
+                    : $"identity: {identity.Property!.Name} (composition)";
+
+            var identityResult = Children.ValidateList(identity, list, context.Column.Name);
+            if (!identityResult.Ok)
+                identityText += $"\n⚠ identity error: {identityResult.Error}\n" +
+                    "Repair by editing the identity cell (rows are matched positionally while the list is invalid); " +
+                    "no write is accepted until the whole list becomes valid.";
+
+            _childIdentityNote.Text = identityText;
+            _childAddInput.Visible = !identity.Positional;
+
+            // An invalid identity does NOT disable editing: the repair happens in-window here. The
+            // reference guard plus ValidateCandidate already refuse any write until the list is valid.
+            var editing = Editing.ChildEditingAllowed(context.Tab.Binding != null, _editingDisabled);
+            ResetChildConfirmation(_childDelete, _editingDisabled);
+            _childConfirmPanel.Visible = _childDelete.Open;
+            _childAddButton.Disabled = !editing;
+            _childAddInput.Editable = editing;
+
+            _childGrid.Columns = childColumns.Count + 1;
+            AddHeaderCell(_childGrid, "identity");
+            foreach (var column in childColumns)
+                AddHeaderCell(_childGrid, column.Name);
+
+            if (list == null)
+            {
+                _childGrid.AddChild(BuildPlainLabel("(null child list)"));
+                return;
+            }
+
+            object? canonParent = null;
+            if (context.Tab.CanonKnown)
+                context.Tab.CanonByKey.TryGetValue(context.ParentKey, out canonParent);
+            var canonList = canonParent != null ? Children.ListOf(context.Column.Property, canonParent) : null;
+
+            var diff = context.Tab.Diff != null
+                && context.Tab.Diff.ByIndex.TryGetValue(IndexOfRow(context.Tab, context.ParentReference), out var parentDiff)
+                ? parentDiff
+                : null;
+            ChildListDiff? childDiff = null;
+            if (diff != null && diff.ChildDiffs.TryGetValue(context.Column.Name, out var found))
+                childDiff = found;
+
+            var rowCount = 0;
+            for (var i = 0; i < list.Count; i++)
+            {
+                var child = list[i];
+                var label = Children.Label(identity, child, i);
+                var rowDiff = childDiff?.Rows.Find(r => r.Index == i && !r.Added) ?? null;
+                if (_changesOnlyMode && childDiff != null && rowDiff == null)
+                    continue;
+
+                if (rowCount >= RowCap)
+                    break;
+                rowCount++;
+                BuildChildRow(context, childColumns, identity, child, label, i, editing, rowDiff);
+            }
+
+            if (!_changesOnlyMode && list.Count > RowCap)
+                _childIdentityNote.Text +=
+                    $"\nShowing {RowCap} of {list.Count} child rows (truncated); all rows still participate in diff/export/transactions.";
+
+            // Deleted canon children are inspectable tombstones, never editable.
+            if (_changesOnlyMode && childDiff != null)
+            {
+                foreach (var deleted in childDiff.Deleted)
+                {
+                    BuildChildRow(context, childColumns, identity,
+                        Lookup(canonList, deleted.Index), deleted.Identity, deleted.Index, editing: false, rowDiff: deleted);
+                }
+            }
+        }
+
+        private void BuildChildRow(
+            ChildContext context,
+            IReadOnlyList<ColumnInfo> childColumns,
+            ChildIdentity identity,
+            object? child,
+            string label,
+            int index,
+            bool editing,
+            ChildRowDiff? rowDiff)
+        {
+            var deleted = rowDiff?.Deleted == true;
+            var cellRow = new HBoxContainer();
+            cellRow.AddThemeConstantOverride("separation", 4);
+
+            var identityLabel = new Label
+            {
+                Text = label,
+                ClipText = true,
+                TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
+                CustomMinimumSize = new Vector2(CellWidth, 0),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            identityLabel.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            cellRow.AddChild(identityLabel);
+
+            var delete = new Button
+            {
+                Text = "✕",
+                Flat = true,
+                FocusMode = Control.FocusModeEnum.None,
+                CustomMinimumSize = new Vector2(48f, 0),
+                Disabled = !editing || deleted
+            };
+            delete.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            delete.Pressed += () => OpenChildDeleteConfirm(context, label, index);
+            cellRow.AddChild(delete);
+
+            _childGrid.AddChild(cellRow);
+
+            if (child == null)
+            {
+                foreach (var _ in childColumns)
+                    _childGrid.AddChild(BuildPlainLabel("<missing>"));
+                return;
+            }
+
+            foreach (var column in childColumns)
+            {
+                object? value;
+                try
+                {
+                    value = column.Property.GetValue(child);
+                }
+                catch (Exception ex)
+                {
+                    value = $"<error: {ex.GetType().Name}>";
+                }
+
+                var changed = rowDiff != null && rowDiff.ChangedColumns.Contains(column.Name);
+                var wrapper = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+                wrapper.AddThemeConstantOverride("separation", 0);
+
+                Control editor;
+                if (editing && !deleted && column.CanEdit)
+                    editor = BuildEditor(column, value, ChildEditorHost(context, label, index));
+                else
+                    editor = BuildPlainLabel(value);
+
+                wrapper.AddChild(editor);
+                if (changed)
+                    editor.Modulate = new Color(1f, 0.75f, 0.45f, 1f);
+                _childGrid.AddChild(wrapper);
+            }
+        }
+
+        private static object? Lookup(IList? list, int index)
+            => list != null && index >= 0 && index < list.Count ? list[index] : null;
+
+        private static int IndexOfRow(TabState tab, object row)
+        {
+            for (var i = 0; i < tab.Rows.Count; i++)
+            {
+                if (ReferenceEquals(tab.Rows[i], row))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private EditorHost ChildEditorHost(ChildContext context, string identity, int index) => new()
+        {
+            CommitValue = (column, value) => CommitChildCell(context, identity, index, column, value),
+            ShowError = ShowCellError
+        };
+
+        /// <summary>Re-resolves the displayed published parent reference and requires it to match.</summary>
+        private void CommitChildCell(ChildContext context, string label, int index, ColumnInfo column, object? value)
+        {
+            var tab = context.Tab;
+            if (tab.Binding == null)
+                return;
+
+            if (_editingDisabled)
+            {
+                FlashStatus(Editing.DisabledMessage);
+                return;
+            }
+
+            string? oldText = null;
+            var result = RunCommitCurrent(tab, (candidate, current) =>
+            {
+                var error = ChildEdit.SetCell(
+                    tab, context, label, index, column, value, candidate, current, out oldText);
+                return error;
+            });
+
+            if (result?.Success == true && oldText != null)
+                Log.LogInfo(
+                    $"{tab.InfoType.Name}.{context.ParentKey}.{context.Column.Name}[{label}].{column.Name}: " +
+                    $"{oldText} → {FormatCellValue(value)}");
+        }
+
+        private void CommitChildAdd()
+        {
+            var context = _childContext;
+            if (context == null)
+                return;
+
+            var tab = context.Tab;
+            if (tab.Binding == null)
+            {
+                ShowChildAddError("Editing is unavailable for this tab.");
+                return;
+            }
+
+            if (_editingDisabled)
+            {
+                ShowChildAddError(Editing.DisabledMessage);
+                return;
+            }
+
+            var identity = context.Identity;
+            object? identityValue = null;
+            string? identityText = null;
+            if (!identity.Positional)
+            {
+                if (!Codec.TryParse(identity.Property!.PropertyType, _childAddInput.Text, null, out identityValue, out var error))
+                {
+                    ShowChildAddError(error ?? "invalid identity");
+                    return;
+                }
+
+                identityText = Keying.FormatKeyValue(identityValue);
+            }
+
+            var instance = Keying.DefaultInstance(context.ElementType);
+            if (instance == null)
+            {
+                ShowChildAddError("A new child row could not be created (no public parameterless constructor).");
+                return;
+            }
+
+            var result = RunCommitCurrent(tab, (candidate, current) =>
+                ChildEdit.Add(tab, context, identityValue, instance, candidate, current));
+
+            if (result?.Success == true)
+            {
+                Log.LogInfo(
+                    $"{tab.InfoType.Name}.{context.ParentKey}.{context.Column.Name}: " +
+                    $"added child {identityText ?? "(positional)"}");
+                _childAddInput.Text = string.Empty;
+            }
+        }
+
+        private void OpenChildDeleteConfirm(ChildContext context, string label, int index)
+        {
+            if (_editingDisabled)
+            {
+                FlashStatus(Editing.DisabledMessage);
+                return;
+            }
+
+            _childDelete.OpenFor(label, index);
+            _childConfirmPanel.Visible = true;
+            _childAddError.Visible = false;
+
+            var lines = new List<string> { $"Delete child '{label}' from {context.Column.Name}?" };
+
+            // A natural string identity is the only case where a ref scan is meaningful.
+            var identityProperty = context.Identity.Property;
+            if (identityProperty != null && identityProperty.PropertyType == typeof(string))
+            {
+                var scan = RefScanFor(context.Tab, label);
+                if (!scan.Complete)
+                    lines.Add($"Reference checking was incomplete: {scan.Error}");
+                else if (scan.Candidates.Count == 0)
+                    lines.Add("No candidate references found.");
+                else
+                {
+                    lines.Add($"{scan.Candidates.Count} potential reference(s):");
+                    foreach (var candidate in scan.Candidates)
+                        lines.Add("  " + candidate);
+                }
+            }
+            else
+            {
+                lines.Add("No reference scan for a non-string/positional child identity; candidates may exist outside the scanned scalar refs.");
+            }
+
+            _childConfirmText.Text = string.Join("\n", lines);
+        }
+
+        private void CommitChildDelete()
+        {
+            var context = _childContext;
+            if (context == null || context.Tab.Binding == null || _childDelete.PendingIdentity == null)
+                return;
+
+            // Explicit early return in addition to the central lock in the commit path: an open
+            // confirmation must never write after a recovery failure engaged the lock.
+            if (_editingDisabled)
+            {
+                CloseChildConfirm();
+                FlashStatus(Editing.DisabledMessage);
+                return;
+            }
+
+            var label = _childDelete.PendingIdentity;
+            var index = _childDelete.PendingIndex;
+            var result = RunCommitCurrent(context.Tab, (candidate, current) =>
+                ChildEdit.Remove(context.Tab, context, label, index, candidate, current));
+
+            if (result?.Success == true)
+            {
+                Log.LogInfo($"{context.Tab.InfoType.Name}.{context.ParentKey}.{context.Column.Name}: removed child {label}");
+                _childDelete.Reset();
+                _childConfirmPanel.Visible = false;
+            }
+        }
+
+        private void CloseChildConfirm()
+        {
+            _childDelete.Reset();
+            _childConfirmPanel.Visible = false;
+        }
+
+        private void ShowChildAddError(string message)
+        {
+            _childAddError.Text = message;
+            _childAddError.Visible = true;
+        }
+
+        /// <summary>
+        /// Revalidates the open child context after a rebuild: keeps it when the parent row and the
+        /// child property still exist (re-anchoring to the freshly published parent), closes it
+        /// cleanly otherwise. The commit guard uses the re-anchored reference, never a stale one.
+        /// </summary>
+        private void RevalidateChildContext()
+        {
+            if (_childContext == null)
+                return;
+
+            var tab = SelectedTabState();
+            if (tab == null || !ReferenceEquals(tab, _childContext.Tab))
+            {
+                CloseChildDetail();
+                return;
+            }
+
+            var index = Keying.IndexOfKey(tab.InfoType, tab.Rows, _childContext.ParentKey);
+            if (index < 0)
+            {
+                CloseChildDetail();
+                return;
+            }
+
+            var column = tab.Columns.Find(c => c.Kind == EditorKind.ChildList && c.Name == _childContext.Column.Name);
+            if (column == null)
+            {
+                CloseChildDetail();
+                return;
+            }
+
+            _childContext.Column = column;
+            _childContext.ParentReference = tab.Rows[index];
+            _childContext.ChildColumns = BuildColumns(_childContext.ElementType, allowChildLists: false);
+            _childContext.Identity = Children.Resolve(_childContext.ElementType, tab.ResolveChildIdentity);
+            BuildChildUi();
+        }
+
         // ---- tabs ------------------------------------------------------------
 
         private void OnTabChanged(long tab)
@@ -2569,6 +4178,11 @@ public static class InfoDebugWindow
             _addPanel.Visible = false;
             _confirmPanel.Visible = false;
             _pendingDeleteKey = null;
+            _childContext = null;
+            _childDelete.Reset();
+            _childConfirmPanel.Visible = false;
+            _childPane.Visible = false;
+            _detailText.Visible = true;
             HighlightSelectedRow();
             UpdateTitle();
             UpdateStatus();
@@ -2582,7 +4196,9 @@ public static class InfoDebugWindow
             if (tab == null)
                 return;
 
-            BuildTabUi();
+            RebuildTabUiPreservingTab();
+            if (_childContext != null)
+                BuildChildUi();
             HighlightSelectedRow();
             UpdateStatus();
         }
@@ -2772,13 +4388,19 @@ public static class InfoDebugWindow
         private void ApplyResponsive(Vector2 size)
         {
             var selected = SelectedTabState();
-            var hasSelection = selected != null && _selectedKey != null
-                && selected.Visible.Exists(v => string.Equals(v.Key, _selectedKey, StringComparison.Ordinal));
+            // An open child context is a selection in its own right: it must not depend on whether
+            // its parent row is still inside a changes-only visible window.
+            var hasSelection = _childContext != null || (selected != null && _selectedKey != null
+                && selected.Visible.Exists(v => string.Equals(v.Key, _selectedKey, StringComparison.Ordinal)));
             // Aspect decides the axis: a portrait viewport (height > width, equality is landscape)
             // stacks; flip the single body container in place instead of reparenting/rebuilding panes.
             var portrait = size.Y > size.X;
             var wide = size.X >= WideBreakpointWidth;
             _body.Vertical = portrait;
+
+            _childPane.Visible = _childContext != null;
+            if (_childContext != null)
+                _detailText.Visible = false;
 
             if (!hasSelection)
             {
@@ -2809,6 +4431,21 @@ public static class InfoDebugWindow
                 child.QueueFree();
             }
         }
+    }
+
+    /// <summary>One open child drill-down: the parent row reference and the child list it shows.</summary>
+    private sealed class ChildContext
+    {
+        public TabState Tab = null!;
+        public string ParentKey = string.Empty;
+
+        /// <summary>The displayed published parent row; the commit guard re-resolves and matches it.</summary>
+        public object ParentReference = null!;
+
+        public ColumnInfo Column = null!;
+        public Type ElementType = typeof(object);
+        public List<ColumnInfo> ChildColumns = new();
+        public ChildIdentity Identity = null!;
     }
 
     /// <summary>One rendered table row: current index (or -1 for a deleted tombstone), row, key.</summary>
@@ -2854,6 +4491,9 @@ public static class InfoDebugWindow
         public int TotalRows { get; set; }
 
         public List<ColumnInfo> Columns { get; set; } = new();
+
+        /// <summary>The binding's optional child natural-identity resolver, or null.</summary>
+        public Func<Type, string?>? ResolveChildIdentity { get; set; }
 
         public Dictionary<string, object> CanonByKey { get; set; } = new(StringComparer.Ordinal);
 
