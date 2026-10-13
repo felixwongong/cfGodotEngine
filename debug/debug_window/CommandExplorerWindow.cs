@@ -44,6 +44,7 @@ public static class CommandExplorerWindow
     /// </summary>
     public static Control Build()
     {
+        DebugUiScale.EnsureRegistered();
         var explorer = new Explorer();
         return explorer.Root;
     }
@@ -353,12 +354,12 @@ public static class CommandExplorerWindow
 
             _column = new VBoxContainer();
             _column.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-            _column.AddThemeConstantOverride("separation", 8);
+            _column.AddThemeConstantOverride("separation", DebugUiScale.S(8));
             Root.AddChild(_column);
 
             // Header: tree summary/status + Refresh.
             var toolbar = new HBoxContainer();
-            toolbar.AddThemeConstantOverride("separation", 8);
+            toolbar.AddThemeConstantOverride("separation", DebugUiScale.S(8));
             _column.AddChild(toolbar);
 
             _status = new Label
@@ -368,7 +369,7 @@ public static class CommandExplorerWindow
                 TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            _status.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _status.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             toolbar.AddChild(_status);
 
             _refreshButton = new Button
@@ -376,7 +377,7 @@ public static class CommandExplorerWindow
                 Text = "⟳ Refresh",
                 FocusMode = Control.FocusModeEnum.None
             };
-            _refreshButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _refreshButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _refreshButton.Pressed += Refresh;
             toolbar.AddChild(_refreshButton);
 
@@ -388,7 +389,7 @@ public static class CommandExplorerWindow
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
-            _body.AddThemeConstantOverride("separation", 8);
+            _body.AddThemeConstantOverride("separation", DebugUiScale.S(8));
             _column.AddChild(_body);
 
             _tree = new Tree
@@ -397,7 +398,7 @@ public static class CommandExplorerWindow
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
-            _tree.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _tree.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _tree.ItemSelected += OnItemSelected;
             _tree.NothingSelected += OnNothingSelected;
             _body.AddChild(_tree);
@@ -407,7 +408,7 @@ public static class CommandExplorerWindow
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
-            detail.AddThemeConstantOverride("separation", 6);
+            detail.AddThemeConstantOverride("separation", DebugUiScale.S(6));
             _body.AddChild(detail);
 
             _pathField = new LineEdit
@@ -416,7 +417,7 @@ public static class CommandExplorerWindow
                 PlaceholderText = "select a command",
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             };
-            _pathField.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _pathField.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             detail.AddChild(_pathField);
 
             _hintLabel = new Label
@@ -425,13 +426,13 @@ public static class CommandExplorerWindow
                 MouseFilter = Control.MouseFilterEnum.Ignore,
                 Visible = false
             };
-            _hintLabel.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _hintLabel.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             detail.AddChild(_hintLabel);
 
             // Raw mode: the original freeform args field, kept verbatim. Its whole area is hidden in
             // declared mode; Run deliberately lives outside it so it stays reachable either way.
             _rawArea = new HBoxContainer();
-            _rawArea.AddThemeConstantOverride("separation", 8);
+            _rawArea.AddThemeConstantOverride("separation", DebugUiScale.S(8));
             detail.AddChild(_rawArea);
 
             _argsField = new LineEdit
@@ -439,7 +440,7 @@ public static class CommandExplorerWindow
                 PlaceholderText = "args",
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             };
-            _argsField.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _argsField.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _argsField.TextSubmitted += OnArgsSubmitted;
             _rawArea.AddChild(_argsField);
 
@@ -451,7 +452,7 @@ public static class CommandExplorerWindow
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill,
                 Visible = false
             };
-            _declaredArea.AddThemeConstantOverride("separation", 6);
+            _declaredArea.AddThemeConstantOverride("separation", DebugUiScale.S(6));
             detail.AddChild(_declaredArea);
 
             _rowsScroll = new ScrollContainer
@@ -463,7 +464,7 @@ public static class CommandExplorerWindow
             _declaredArea.AddChild(_rowsScroll);
 
             _rowsBox = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.Fill };
-            _rowsBox.AddThemeConstantOverride("separation", 6);
+            _rowsBox.AddThemeConstantOverride("separation", DebugUiScale.S(6));
             _rowsScroll.AddChild(_rowsBox);
 
             _addButton = new Button
@@ -472,7 +473,7 @@ public static class CommandExplorerWindow
                 FocusMode = Control.FocusModeEnum.None,
                 Disabled = true
             };
-            _addButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _addButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _addButton.Pressed += OnAddPressed;
             _declaredArea.AddChild(_addButton);
 
@@ -482,7 +483,7 @@ public static class CommandExplorerWindow
                 MouseFilter = Control.MouseFilterEnum.Ignore,
                 Visible = false
             };
-            _errorLabel.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _errorLabel.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _declaredArea.AddChild(_errorLabel);
 
             _warningLabel = new Label
@@ -491,7 +492,7 @@ public static class CommandExplorerWindow
                 MouseFilter = Control.MouseFilterEnum.Ignore,
                 Visible = false
             };
-            _warningLabel.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _warningLabel.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _declaredArea.AddChild(_warningLabel);
 
             // Run is shared by both modes and is never a descendant of a hidden raw-only container.
@@ -501,7 +502,7 @@ public static class CommandExplorerWindow
                 FocusMode = Control.FocusModeEnum.None,
                 Disabled = true
             };
-            _runButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _runButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _runButton.Pressed += Run;
             detail.AddChild(_runButton);
 
@@ -512,7 +513,7 @@ public static class CommandExplorerWindow
                 TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            _outputStatus.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            _outputStatus.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             _column.AddChild(_outputStatus);
 
             _output = new RichTextLabel
@@ -526,8 +527,8 @@ public static class CommandExplorerWindow
             var mono = new SystemFont { FontNames = new[] { "monospace" }, AllowSystemFallback = true };
             _output.AddThemeFontOverride("normal_font", mono);
             _output.AddThemeFontOverride("mono_font", mono);
-            _output.AddThemeFontSizeOverride("normal_font_size", ExplorerFontSize);
-            _output.AddThemeFontSizeOverride("mono_font_size", ExplorerFontSize);
+            _output.AddThemeFontSizeOverride("normal_font_size", DebugUiScale.S(ExplorerFontSize));
+            _output.AddThemeFontSizeOverride("mono_font_size", DebugUiScale.S(ExplorerFontSize));
             _column.AddChild(_output);
 
             Root.TreeEntered += OnTreeEntered;
@@ -778,7 +779,7 @@ public static class CommandExplorerWindow
             var row = new RowState { Spec = spec };
 
             var rowBox = new HBoxContainer();
-            rowBox.AddThemeConstantOverride("separation", 8);
+            rowBox.AddThemeConstantOverride("separation", DebugUiScale.S(8));
             rowBox.SizeFlagsHorizontal = Control.SizeFlags.Fill;
             _rowsBox.AddChild(rowBox);
             row.Row = rowBox;
@@ -788,9 +789,9 @@ public static class CommandExplorerWindow
                 // Cap the drop-down's minimum width so long labels cannot widen the card; the full
                 // label stays reachable through the popup and the tooltip.
                 ClipText = true,
-                CustomMinimumSize = new Vector2(KeyControlMinWidth, 0)
+                CustomMinimumSize = new Vector2(DebugUiScale.S(KeyControlMinWidth), 0)
             };
-            keyButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            keyButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             for (var i = 0; i < _declaredArgs.Count; i++)
             {
                 var candidate = _declaredArgs[i];
@@ -811,9 +812,9 @@ public static class CommandExplorerWindow
             {
                 Text = "✕",
                 FocusMode = Control.FocusModeEnum.None,
-                CustomMinimumSize = new Vector2(RemoveButtonWidth, 0)
+                CustomMinimumSize = new Vector2(DebugUiScale.S(RemoveButtonWidth), 0)
             };
-            removeButton.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+            removeButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
             removeButton.Pressed += () => OnRowRemoved(row);
             rowBox.AddChild(removeButton);
             row.RemoveButton = removeButton;
@@ -837,9 +838,9 @@ public static class CommandExplorerWindow
                     var choice = new OptionButton
                     {
                         ClipText = true,
-                        CustomMinimumSize = new Vector2(ValueControlMinWidth, 0)
+                        CustomMinimumSize = new Vector2(DebugUiScale.S(ValueControlMinWidth), 0)
                     };
-                    choice.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+                    choice.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
                     for (var i = 0; i < spec.Choices.Count; i++)
                     {
                         choice.AddItem(spec.Choices[i]);
@@ -861,11 +862,11 @@ public static class CommandExplorerWindow
                     var line = new LineEdit
                     {
                         SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-                        CustomMinimumSize = new Vector2(ValueControlMinWidth, 0)
+                        CustomMinimumSize = new Vector2(DebugUiScale.S(ValueControlMinWidth), 0)
                     };
                     if (spec.Type == ArgType.Int || spec.Type == ArgType.Float)
                         line.VirtualKeyboardType = LineEdit.VirtualKeyboardTypeEnum.NumberDecimal;
-                    line.AddThemeFontSizeOverride("font_size", ExplorerFontSize);
+                    line.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ExplorerFontSize));
                     row.Value = string.Empty;
                     line.TextChanged += text => OnRowValueChanged(row, text);
                     line.TextSubmitted += _ => Run();

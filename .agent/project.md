@@ -90,4 +90,38 @@ visibility of the `CanvasLayer` content canvases that belong to it**:
   the next render), guards reentrancy with a private flag, and unsubscribes both ancestor and tree
   signals in `_ExitTree` with no retained `SceneTree` reference. No per-frame scanning is used.
 
+### Debug UI scale contract
+
+`DebugUiScale` (`debug/DebugUiScale.cs`, namespace `cfGodotEngine.Debug`, always compiled) is the
+single knob for debug-UI density (`debug_window/*`, `command_console/CommandConsoleOverlay`):
+
+- `Factor` is 1 on desktop and 2 on touch/phone-class screens. `S(int)` / `S(float)` multiply a base
+  pixel constant by `Factor`; every swept sizing expression scales exactly once at consumption, and
+  the base constants are unchanged.
+- Classification is pure and engine-free in `GetFactorFor(mode, touch)` / `IsPhoneFor(mode, touch,
+  width, height)`. The native `Factor` / `IsPhoneMode` read `DisplayServer.IsTouchscreenAvailable()`
+  and `DisplayServer.ScreenGetSize()` on the Godot main thread only — never on a worker thread and
+  never from a static type initializer.
+- Mode comes from the `debug/ui_scale_mode` project setting (`auto` | `desktop` | `mobile`) and is
+  resolved on every read, so no native result is cached. Missing/blank/invalid values fall back to
+  `auto`. The setting is registered with `ProjectSettings.SetSetting` **only when absent**, together
+  with an enum `auto,desktop,mobile` property hint; `ProjectSettings.Save()` is never called and the
+  framework never edits `project.godot`.
+- Mode semantics: `desktop` forces ×1 and is never phone; `mobile` forces ×2 and is phone even on a
+  desktop; `auto` is ×2 when touch and phone only when touch **and** the shorter physical screen edge
+  is ≤1200 px (rotation-insensitive; nonpositive screen dimensions are never phone). A touch tablet
+  therefore scales ×2 but is not phone.
+- At ×2, fonts/constants an element would otherwise inherit are scaled by `ScaleInheritedFont` /
+  `ScaleInheritedConstant`, derived from the value already resolved for that element; at ×1 no extra
+  override is installed.
+
+This is a first-pass density sweep only (**vs-1 of run `debug-ui-mobile`**). It does **not** add
+fullscreen placement, safe-area insets, drag/cascade suppression or the stacked mobile window mode —
+that is vs-2. The host keeps floating cards, and console placement is only deferred-clamped into the
+viewport at ×2 (the ×1 desktop initial position is preserved). The host close button keeps no
+explicit minimum at ×1 and gets a 120×120 touch target at ×2. At ×2 a 1080-wide phone shows
+increased horizontal scrolling (cells 240→480 px, action minima 48→96 px; a four-column grid row
+needs ≈1900 px against ≈945 px of card content), an accepted first-pass limit rather than completed
+phone usability.
+
 See CatSweeper's `.agent/systems/subtrees.md` for the subtree workflow.

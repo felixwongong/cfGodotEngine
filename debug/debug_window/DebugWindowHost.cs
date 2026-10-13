@@ -35,6 +35,7 @@ public sealed partial class DebugWindowHost : CanvasLayer
 
     public override void _Ready()
     {
+        DebugUiScale.EnsureRegistered();
         Layer = HostLayer;
         _viewport = GetViewport();
         DebugWindowRegistry.WindowOpenRequested += OnWindowOpenRequested;
@@ -140,16 +141,18 @@ public sealed partial class DebugWindowHost : CanvasLayer
         panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
             BgColor = new Color(0f, 0f, 0f, 0.9f),
-            ContentMarginLeft = 12,
-            ContentMarginTop = 8,
-            ContentMarginRight = 12,
-            ContentMarginBottom = 8
+            ContentMarginLeft = DebugUiScale.S(12f),
+            ContentMarginTop = DebugUiScale.S(8f),
+            ContentMarginRight = DebugUiScale.S(12f),
+            ContentMarginBottom = DebugUiScale.S(8f)
         });
 
         var layout = new VBoxContainer();
+        DebugUiScale.ScaleInheritedConstant(layout, "separation");
         panel.AddChild(layout);
 
         var header = new HBoxContainer();
+        DebugUiScale.ScaleInheritedConstant(header, "separation");
         var title = new Label
         {
             Text = request.Title,
@@ -158,7 +161,7 @@ public sealed partial class DebugWindowHost : CanvasLayer
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        title.AddThemeFontSizeOverride("font_size", TitleFontSize);
+        title.AddThemeFontSizeOverride("font_size", DebugUiScale.S(TitleFontSize));
         header.AddChild(title);
         card.BaseTitle = request.Title;
         card.CurrentTitle = request.Title;
@@ -177,6 +180,14 @@ public sealed partial class DebugWindowHost : CanvasLayer
             Text = "✕",
             FocusMode = Control.FocusModeEnum.None
         };
+        // The desktop close button deliberately has no explicit minimum (unchanged at ×1). On a
+        // ×2 device it gets the discussion's ≥120×120 touch target plus its scaled inherited font.
+        if (DebugUiScale.Factor > 1)
+        {
+            close.CustomMinimumSize = new Vector2(120f, 120f);
+            DebugUiScale.ScaleInheritedFont(close);
+        }
+
         close.Pressed += () => CloseWindow(request.Name);
         header.AddChild(close);
         layout.AddChild(header);
@@ -218,7 +229,7 @@ public sealed partial class DebugWindowHost : CanvasLayer
         else if (@event is InputEventMouseMotion mm && card.Pressed)
         {
             card.DragDistance += mm.Relative.Length();
-            if (card.DragDistance >= DragThresholdPx)
+            if (card.DragDistance >= DebugUiScale.S(DragThresholdPx))
                 card.Dragging = true;
 
             if (card.Dragging)
@@ -255,7 +266,7 @@ public sealed partial class DebugWindowHost : CanvasLayer
         // First card is centered; each subsequent distinct card cascades 32px from the previous
         // card's placed position, then clamps into the visible rect.
         var pos = _hasCascadeOrigin
-            ? _lastCardPosition + new Vector2(CascadeOffsetPx, CascadeOffsetPx)
+            ? _lastCardPosition + new Vector2(DebugUiScale.S(CascadeOffsetPx), DebugUiScale.S(CascadeOffsetPx))
             : (bounds - card.Panel.Size) * 0.5f;
 
         card.Panel.Position = ClampToBounds(pos, card.Panel.Size, bounds);
@@ -294,8 +305,8 @@ public sealed partial class DebugWindowHost : CanvasLayer
 
     private static Vector2 DesiredSize(Vector2 bounds)
     {
-        var width = Mathf.Min(bounds.X * DesiredWidthRatio, MaxCardWidth);
-        var height = Mathf.Min(bounds.Y * DesiredHeightRatio, MaxCardHeight);
+        var width = Mathf.Min(bounds.X * DesiredWidthRatio, DebugUiScale.S(MaxCardWidth));
+        var height = Mathf.Min(bounds.Y * DesiredHeightRatio, DebugUiScale.S(MaxCardHeight));
         return new Vector2(Mathf.Max(0f, width), Mathf.Max(0f, height));
     }
 

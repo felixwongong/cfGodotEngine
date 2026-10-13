@@ -66,6 +66,7 @@ public static class InfoDebugWindow
         if (resolveBinding == null)
             throw new ArgumentNullException(nameof(resolveBinding));
 
+        DebugUiScale.EnsureRegistered();
         var viewer = new Viewer(resolveBinding);
         return viewer.Root;
     }
@@ -2310,12 +2311,12 @@ public static class InfoDebugWindow
 
             _column = new VBoxContainer();
             _column.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-            _column.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            _column.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             Root.AddChild(_column);
 
             // Header: a dedicated status line above two width-wrapping action rows (all 28px).
             var statusRow = new HBoxContainer();
-            statusRow.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            statusRow.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             _column.AddChild(statusRow);
 
             _status = new Label
@@ -2326,7 +2327,7 @@ public static class InfoDebugWindow
                 MouseFilter = Control.MouseFilterEnum.Ignore,
                 Text = _placeholderTitle
             };
-            _status.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _status.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             statusRow.AddChild(_status);
 
             var actionRow1 = NewActionRow();
@@ -2346,7 +2347,7 @@ public static class InfoDebugWindow
                 FocusMode = Control.FocusModeEnum.None,
                 ButtonPressed = false
             };
-            _changesOnly.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _changesOnly.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _changesOnly.Toggled += OnChangesOnlyToggled;
             _copyFlatButton = NewActionButton("Copy TSV", CopyFlatToClipboard);
             _copyChangesButton = NewActionButton("Copy changes", CopyChangesToClipboard);
@@ -2371,7 +2372,7 @@ public static class InfoDebugWindow
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
-            _body.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            _body.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             _column.AddChild(_body);
 
             _tabContainer = new TabContainer
@@ -2380,10 +2381,10 @@ public static class InfoDebugWindow
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill,
                 SizeFlagsStretchRatio = TableStretchRatio
             };
-            _tabContainer.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _tabContainer.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             var tabBar = _tabContainer.GetTabBar();
             tabBar.ClipTabs = true;
-            tabBar.MaxTabWidth = 150;
+            tabBar.MaxTabWidth = DebugUiScale.S(150);
             _tabContainer.TabChanged += OnTabChanged;
             _body.AddChild(_tabContainer);
 
@@ -2394,7 +2395,7 @@ public static class InfoDebugWindow
                 SizeFlagsStretchRatio = DetailStretchRatio,
                 Visible = false
             };
-            _detailPane.AddThemeConstantOverride("separation", 6);
+            _detailPane.AddThemeConstantOverride("separation", DebugUiScale.S(6));
             _body.AddChild(_detailPane);
 
             _backButton = new Button
@@ -2403,7 +2404,7 @@ public static class InfoDebugWindow
                 FocusMode = Control.FocusModeEnum.None,
                 Visible = false
             };
-            _backButton.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _backButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _backButton.Pressed += OnBack;
             _detailPane.AddChild(_backButton);
 
@@ -2418,8 +2419,8 @@ public static class InfoDebugWindow
             };
             _detailText.AddThemeFontOverride("normal_font", mono);
             _detailText.AddThemeFontOverride("mono_font", mono);
-            _detailText.AddThemeFontSizeOverride("normal_font_size", ViewerFontSize);
-            _detailText.AddThemeFontSizeOverride("mono_font_size", ViewerFontSize);
+            _detailText.AddThemeFontSizeOverride("normal_font_size", DebugUiScale.S(ViewerFontSize));
+            _detailText.AddThemeFontSizeOverride("mono_font_size", DebugUiScale.S(ViewerFontSize));
             _detailPane.AddChild(_detailText);
 
             _childPane = new VBoxContainer
@@ -2428,12 +2429,12 @@ public static class InfoDebugWindow
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
-            _childPane.AddThemeConstantOverride("separation", 6);
+            _childPane.AddThemeConstantOverride("separation", DebugUiScale.S(6));
 
             var crumbRow = new HBoxContainer();
-            crumbRow.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            crumbRow.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             _childBackButton = new Button { Text = "‹ parent", FocusMode = Control.FocusModeEnum.None };
-            _childBackButton.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childBackButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _childBackButton.Pressed += CloseChildDetail;
             crumbRow.AddChild(_childBackButton);
 
@@ -2443,18 +2444,18 @@ public static class InfoDebugWindow
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            _childBreadcrumb.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childBreadcrumb.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             crumbRow.AddChild(_childBreadcrumb);
             _childPane.AddChild(crumbRow);
 
             _childIdentityNote = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-            _childIdentityNote.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childIdentityNote.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _childPane.AddChild(_childIdentityNote);
 
             var childAddRow = new HBoxContainer();
-            childAddRow.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            childAddRow.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             _childAddInput = new LineEdit { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, PlaceholderText = "identity" };
-            _childAddInput.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childAddInput.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _childAddInput.TextSubmitted += _ => CommitChildAdd();
             childAddRow.AddChild(_childAddInput);
             _childAddButton = NewActionButton("Add child", CommitChildAdd);
@@ -2462,16 +2463,16 @@ public static class InfoDebugWindow
             _childPane.AddChild(childAddRow);
 
             _childAddError = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-            _childAddError.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childAddError.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _childPane.AddChild(_childAddError);
 
             _childConfirmPanel = new VBoxContainer { Visible = false };
-            _childConfirmPanel.AddThemeConstantOverride("separation", 6);
+            _childConfirmPanel.AddThemeConstantOverride("separation", DebugUiScale.S(6));
             _childConfirmText = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-            _childConfirmText.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _childConfirmText.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _childConfirmPanel.AddChild(_childConfirmText);
             var childConfirmRow = new HBoxContainer();
-            childConfirmRow.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            childConfirmRow.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             childConfirmRow.AddChild(NewActionButton("Delete child", CommitChildDelete));
             childConfirmRow.AddChild(NewActionButton("Cancel", CloseChildConfirm));
             _childConfirmPanel.AddChild(childConfirmRow);
@@ -2486,6 +2487,8 @@ public static class InfoDebugWindow
                 VerticalScrollMode = ScrollContainer.ScrollMode.Auto
             };
             _childGrid = new GridContainer { Columns = 1 };
+            DebugUiScale.ScaleInheritedConstant(_childGrid, "h_separation");
+            DebugUiScale.ScaleInheritedConstant(_childGrid, "v_separation");
             childScroll.AddChild(_childGrid);
             _childPane.AddChild(childScroll);
 
@@ -2505,7 +2508,7 @@ public static class InfoDebugWindow
         private static HBoxContainer NewActionRow()
         {
             var row = new HBoxContainer();
-            row.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            row.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             return row;
         }
 
@@ -2516,7 +2519,7 @@ public static class InfoDebugWindow
                 Text = text,
                 FocusMode = Control.FocusModeEnum.None
             };
-            button.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            button.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             button.Pressed += onPressed;
             return button;
         }
@@ -2524,12 +2527,12 @@ public static class InfoDebugWindow
         private VBoxContainer BuildAddPanel()
         {
             var panel = new VBoxContainer { Visible = false };
-            panel.AddThemeConstantOverride("separation", 6);
+            panel.AddThemeConstantOverride("separation", DebugUiScale.S(6));
 
             var row = new HBoxContainer();
-            row.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            row.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             var caption = new Label { Text = "New key:" };
-            caption.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            caption.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             caption.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
             row.AddChild(caption);
 
@@ -2538,7 +2541,7 @@ public static class InfoDebugWindow
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                 PlaceholderText = "key"
             };
-            _addKeyInput.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _addKeyInput.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             _addKeyInput.TextSubmitted += _ => CommitAdd();
             row.AddChild(_addKeyInput);
 
@@ -2549,7 +2552,7 @@ public static class InfoDebugWindow
             panel.AddChild(row);
 
             _addError = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-            _addError.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _addError.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             panel.AddChild(_addError);
             return panel;
         }
@@ -2557,14 +2560,14 @@ public static class InfoDebugWindow
         private VBoxContainer BuildConfirmPanel()
         {
             var panel = new VBoxContainer { Visible = false };
-            panel.AddThemeConstantOverride("separation", 6);
+            panel.AddThemeConstantOverride("separation", DebugUiScale.S(6));
 
             _confirmText = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-            _confirmText.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            _confirmText.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             panel.AddChild(_confirmText);
 
             var row = new HBoxContainer();
-            row.AddThemeConstantOverride("separation", (int)ActionSeparation);
+            row.AddThemeConstantOverride("separation", (int)DebugUiScale.S(ActionSeparation));
             row.AddChild(NewActionButton("Delete", CommitDelete));
             row.AddChild(NewActionButton("Cancel", CloseConfirmPanel));
             panel.AddChild(row);
@@ -2878,7 +2881,7 @@ public static class InfoDebugWindow
                 SizeFlagsVertical = Control.SizeFlags.ExpandFill
             };
             var label = new Label { Text = bodyText, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-            label.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            label.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             content.AddChild(label);
             _tabContainer.AddChild(content);
             _tabContainer.SetTabTitle(0, tabTitle);
@@ -2905,10 +2908,10 @@ public static class InfoDebugWindow
                     SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
                     SizeFlagsVertical = Control.SizeFlags.ExpandFill
                 };
-                content.AddThemeConstantOverride("separation", 6);
+                content.AddThemeConstantOverride("separation", DebugUiScale.S(6));
 
                 tab.Note = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-                tab.Note.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                tab.Note.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
                 content.AddChild(tab.Note);
 
                 var scroll = new ScrollContainer
@@ -2920,6 +2923,8 @@ public static class InfoDebugWindow
                     VerticalScrollMode = ScrollContainer.ScrollMode.Auto
                 };
                 tab.Grid = new GridContainer { Columns = 1 };
+                DebugUiScale.ScaleInheritedConstant(tab.Grid, "h_separation");
+                DebugUiScale.ScaleInheritedConstant(tab.Grid, "v_separation");
                 scroll.AddChild(tab.Grid);
                 content.AddChild(scroll);
 
@@ -3017,16 +3022,16 @@ public static class InfoDebugWindow
             var controls = new List<Control>();
 
             var selectRow = new HBoxContainer();
-            selectRow.AddThemeConstantOverride("separation", 4);
+            selectRow.AddThemeConstantOverride("separation", DebugUiScale.S(4));
 
             var selectButton = new Button
             {
                 Text = "#",
                 Flat = true,
                 FocusMode = Control.FocusModeEnum.None,
-                CustomMinimumSize = new Vector2(48f, 0)
+                CustomMinimumSize = new Vector2(DebugUiScale.S(48f), 0)
             };
-            selectButton.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            selectButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             selectButton.Pressed += () => SelectRow(tab, visible);
             if (visible.Deleted)
                 selectButton.Disabled = true;
@@ -3039,9 +3044,9 @@ public static class InfoDebugWindow
                     Text = "✕",
                     Flat = true,
                     FocusMode = Control.FocusModeEnum.None,
-                    CustomMinimumSize = new Vector2(48f, 0)
+                    CustomMinimumSize = new Vector2(DebugUiScale.S(48f), 0)
                 };
-                deleteButton.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                deleteButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
                 deleteButton.Pressed += () => OpenDeleteConfirm(tab, visible.Key);
                 selectRow.AddChild(deleteButton);
             }
@@ -3086,7 +3091,7 @@ public static class InfoDebugWindow
 
 
             var wrapper = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-            wrapper.AddThemeConstantOverride("separation", 0);
+            wrapper.AddThemeConstantOverride("separation", DebugUiScale.S(0));
 
             Control editor;
             if (editable && !visible.Deleted && !_editingDisabled && column.CanEdit)
@@ -3107,7 +3112,7 @@ public static class InfoDebugWindow
                     TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
                     MouseFilter = Control.MouseFilterEnum.Ignore
                 };
-                comparison.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                comparison.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
                 comparison.Modulate = new Color(1f, 0.65f, 0.35f, 1f);
                 wrapper.AddChild(comparison);
             }
@@ -3125,10 +3130,10 @@ public static class InfoDebugWindow
                 Text = FormatCellValue(value),
                 ClipText = true,
                 TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
-                CustomMinimumSize = new Vector2(CellWidth, 0),
+                CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0),
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            label.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            label.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             return label;
         }
 
@@ -3173,9 +3178,9 @@ public static class InfoDebugWindow
                         Text = column.Name,
                         ButtonPressed = value is true,
                         FocusMode = Control.FocusModeEnum.None,
-                        CustomMinimumSize = new Vector2(CellWidth, 0)
+                        CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0)
                     };
-                    checkBox.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                    checkBox.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
                     var suppress = true;
                     checkBox.Toggled += pressed =>
                     {
@@ -3191,9 +3196,9 @@ public static class InfoDebugWindow
                     var optionButton = new OptionButton
                     {
                         FocusMode = Control.FocusModeEnum.None,
-                        CustomMinimumSize = new Vector2(CellWidth, 0)
+                        CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0)
                     };
-                    optionButton.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                    optionButton.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
                     var names = Enum.GetNames(column.ValueType);
                     foreach (var name in names)
                         optionButton.AddItem(name);
@@ -3216,8 +3221,8 @@ public static class InfoDebugWindow
                 case EditorKind.Vector2I:
                 {
                     var pair = value is Vector2I vector ? vector : default;
-                    var row = new HBoxContainer { CustomMinimumSize = new Vector2(CellWidth, 0) };
-                    row.AddThemeConstantOverride("separation", 4);
+                    var row = new HBoxContainer { CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0) };
+                    row.AddThemeConstantOverride("separation", DebugUiScale.S(4));
                     var xInput = NewCellLineEdit(pair.X.ToString(CultureInfo.InvariantCulture));
                     var yInput = NewCellLineEdit(pair.Y.ToString(CultureInfo.InvariantCulture));
                     Action submit = () =>
@@ -3263,9 +3268,9 @@ public static class InfoDebugWindow
             {
                 Text = text,
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-                CustomMinimumSize = new Vector2(CellWidth / 2f, 0)
+                CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth) / 2f, 0)
             };
-            lineEdit.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            lineEdit.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             return lineEdit;
         }
 
@@ -3561,10 +3566,10 @@ public static class InfoDebugWindow
                 Text = text,
                 ClipText = true,
                 TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
-                CustomMinimumSize = new Vector2(CellWidth, 0),
+                CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0),
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            label.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            label.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             grid.AddChild(label);
         }
 
@@ -3575,10 +3580,10 @@ public static class InfoDebugWindow
                 Text = text,
                 ClipText = true,
                 TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
-                CustomMinimumSize = new Vector2(CellWidth, 0),
+                CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0),
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            label.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            label.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             tab.Grid.AddChild(label);
         }
 
@@ -3658,7 +3663,7 @@ public static class InfoDebugWindow
         private Control BuildChildCell(TabState tab, VisibleRow visible, ColumnInfo column, bool editable)
         {
             var wrapper = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-            wrapper.AddThemeConstantOverride("separation", 0);
+            wrapper.AddThemeConstantOverride("separation", DebugUiScale.S(0));
 
             var list = Children.ListOf(column.Property, visible.Row);
             var count = list?.Count ?? 0;
@@ -3672,10 +3677,10 @@ public static class InfoDebugWindow
                     Text = list == null ? $"{column.Name} (null) ▸" : $"{column.Name}[{count}] ▸",
                     Flat = true,
                     FocusMode = Control.FocusModeEnum.None,
-                    CustomMinimumSize = new Vector2(CellWidth, 0),
+                    CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0),
                     SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
                 };
-                button.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                button.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
                 button.Pressed += () => OpenChildDetail(tab, visible, column);
                 wrapper.AddChild(button);
             }
@@ -3693,7 +3698,7 @@ public static class InfoDebugWindow
                     TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
                     MouseFilter = Control.MouseFilterEnum.Ignore
                 };
-                comparison.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+                comparison.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
                 comparison.Modulate = new Color(1f, 0.65f, 0.35f, 1f);
                 wrapper.AddChild(comparison);
             }
@@ -3882,17 +3887,17 @@ public static class InfoDebugWindow
         {
             var deleted = rowDiff?.Deleted == true;
             var cellRow = new HBoxContainer();
-            cellRow.AddThemeConstantOverride("separation", 4);
+            cellRow.AddThemeConstantOverride("separation", DebugUiScale.S(4));
 
             var identityLabel = new Label
             {
                 Text = label,
                 ClipText = true,
                 TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
-                CustomMinimumSize = new Vector2(CellWidth, 0),
+                CustomMinimumSize = new Vector2(DebugUiScale.S(CellWidth), 0),
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            identityLabel.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            identityLabel.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             cellRow.AddChild(identityLabel);
 
             var delete = new Button
@@ -3900,10 +3905,10 @@ public static class InfoDebugWindow
                 Text = "✕",
                 Flat = true,
                 FocusMode = Control.FocusModeEnum.None,
-                CustomMinimumSize = new Vector2(48f, 0),
+                CustomMinimumSize = new Vector2(DebugUiScale.S(48f), 0),
                 Disabled = !editing || deleted
             };
-            delete.AddThemeFontSizeOverride("font_size", ViewerFontSize);
+            delete.AddThemeFontSizeOverride("font_size", DebugUiScale.S(ViewerFontSize));
             delete.Pressed += () => OpenChildDeleteConfirm(context, label, index);
             cellRow.AddChild(delete);
 
@@ -3930,7 +3935,7 @@ public static class InfoDebugWindow
 
                 var changed = rowDiff != null && rowDiff.ChangedColumns.Contains(column.Name);
                 var wrapper = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-                wrapper.AddThemeConstantOverride("separation", 0);
+                wrapper.AddThemeConstantOverride("separation", DebugUiScale.S(0));
 
                 Control editor;
                 if (editing && !deleted && column.CanEdit)
@@ -4395,7 +4400,7 @@ public static class InfoDebugWindow
             // Aspect decides the axis: a portrait viewport (height > width, equality is landscape)
             // stacks; flip the single body container in place instead of reparenting/rebuilding panes.
             var portrait = size.Y > size.X;
-            var wide = size.X >= WideBreakpointWidth;
+            var wide = size.X >= DebugUiScale.S(WideBreakpointWidth);
             _body.Vertical = portrait;
 
             _childPane.Visible = _childContext != null;

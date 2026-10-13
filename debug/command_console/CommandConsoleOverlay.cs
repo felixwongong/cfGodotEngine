@@ -33,6 +33,7 @@ public partial class CommandConsoleOverlay : CanvasLayer
 
     public override void _Ready()
     {
+        DebugUiScale.EnsureRegistered();
         Layer = 128;
         BuildPanel();
         BuildLogButton();
@@ -71,37 +72,44 @@ public partial class CommandConsoleOverlay : CanvasLayer
         _panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
             BgColor = new Color(0f, 0f, 0f, 0.85f),
-            ContentMarginLeft = 16,
-            ContentMarginTop = 12,
-            ContentMarginRight = 16,
-            ContentMarginBottom = 12
+            ContentMarginLeft = DebugUiScale.S(16f),
+            ContentMarginTop = DebugUiScale.S(12f),
+            ContentMarginRight = DebugUiScale.S(16f),
+            ContentMarginBottom = DebugUiScale.S(12f)
         });
         AddChild(_panel);
 
         var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 12);
-        margin.AddThemeConstantOverride("margin_top", 8);
-        margin.AddThemeConstantOverride("margin_right", 12);
-        margin.AddThemeConstantOverride("margin_bottom", 8);
+        margin.AddThemeConstantOverride("margin_left", DebugUiScale.S(12));
+        margin.AddThemeConstantOverride("margin_top", DebugUiScale.S(8));
+        margin.AddThemeConstantOverride("margin_right", DebugUiScale.S(12));
+        margin.AddThemeConstantOverride("margin_bottom", DebugUiScale.S(8));
         _panel.AddChild(margin);
 
         var vbox = new VBoxContainer();
+        DebugUiScale.ScaleInheritedConstant(vbox, "separation");
         margin.AddChild(vbox);
 
         var header = new HBoxContainer();
-        header.AddChild(new Label { Text = "CONSOLE" });
+        DebugUiScale.ScaleInheritedConstant(header, "separation");
+        var title = new Label { Text = "CONSOLE" };
+        DebugUiScale.ScaleInheritedFont(title);
+        header.AddChild(title);
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
 
         var copy = new Button { Text = "Copy" };
+        DebugUiScale.ScaleInheritedFont(copy);
         copy.Pressed += OnCopyPressed;
         header.AddChild(copy);
 
         var close = new Button { Text = "✕" };
+        DebugUiScale.ScaleInheritedFont(close);
         close.Pressed += () => SetPanelVisible(false);
         header.AddChild(close);
         vbox.AddChild(header);
 
         _input = new LineEdit { PlaceholderText = "Enter command..." };
+        DebugUiScale.ScaleInheritedFont(_input);
         _input.TextSubmitted += OnTextSubmitted;
         _input.GuiInput += OnInputGuiInput;
         vbox.AddChild(_input);
@@ -115,7 +123,8 @@ public partial class CommandConsoleOverlay : CanvasLayer
         var mono = new SystemFont { FontNames = new[] { "monospace" }, AllowSystemFallback = true };
         _output.AddThemeFontOverride("normal_font", mono);
         _output.AddThemeFontOverride("mono_font", mono);
-        _output.AddThemeFontSizeOverride("normal_font_size", 28);
+        _output.AddThemeFontSizeOverride("normal_font_size", DebugUiScale.S(28));
+        DebugUiScale.ScaleInheritedFont(_output, "mono_font_size");
         vbox.AddChild(_output);
     }
 
@@ -125,12 +134,23 @@ public partial class CommandConsoleOverlay : CanvasLayer
         {
             Text = "DEBUG",
             FocusMode = Control.FocusModeEnum.None,
-            CustomMinimumSize = new Vector2(120, 72),
-            Position = new Vector2(900, 160),
+            CustomMinimumSize = new Vector2(DebugUiScale.S(120), DebugUiScale.S(72)),
+            Position = new Vector2(DebugUiScale.S(900), DebugUiScale.S(160)),
             Modulate = ColorForIdle()
         };
+        DebugUiScale.ScaleInheritedFont(_logButton);
         _logButton.GuiInput += OnLogButtonGuiInput;
         AddChild(_logButton);
+
+        // At ×2 the doubled initial coordinate can fall outside a phone-width viewport; defer a
+        // clamp against the button's settled size (the desktop ×1 position is preserved exactly).
+        if (DebugUiScale.Factor > 1)
+            Callable.From(ClampLogButtonPosition).CallDeferred();
+    }
+
+    private void ClampLogButtonPosition()
+    {
+        MoveButton(_logButton.Position);
     }
 
     private void OnLogButtonGuiInput(InputEvent @event)
@@ -157,7 +177,7 @@ public partial class CommandConsoleOverlay : CanvasLayer
         else if (@event is InputEventMouseMotion mm && _pressed)
         {
             _dragDistance += mm.Relative.Length();
-            if (_dragDistance >= DragThresholdPx)
+            if (_dragDistance >= DebugUiScale.S(DragThresholdPx))
             {
                 _dragging = true;
                 _logButton.Modulate = new Color(1, 1, 1, 1f);
@@ -171,10 +191,20 @@ public partial class CommandConsoleOverlay : CanvasLayer
     private void MoveButton(Vector2 pos)
     {
         var vp = GetViewport().GetVisibleRect().Size;
-        var size = _logButton.Size;
-        pos.X = Mathf.Clamp(pos.X, 0f, vp.X - size.X);
-        pos.Y = Mathf.Clamp(pos.Y, 0f, vp.Y - size.Y);
+        var size = EffectiveButtonSize();
+        // A nonnegative upper bound keeps a control larger than the viewport pinned at 0 rather
+        // than producing an inverted clamp range.
+        pos.X = Mathf.Clamp(pos.X, 0f, Mathf.Max(0f, vp.X - size.X));
+        pos.Y = Mathf.Clamp(pos.Y, 0f, Mathf.Max(0f, vp.Y - size.Y));
         _logButton.Position = pos;
+    }
+
+    private Vector2 EffectiveButtonSize()
+    {
+        var size = _logButton.Size;
+        if (size.X > 0f && size.Y > 0f)
+            return size;
+        return _logButton.GetCombinedMinimumSize();
     }
 
     private void TogglePanel()
