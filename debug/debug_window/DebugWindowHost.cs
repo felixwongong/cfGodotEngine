@@ -33,11 +33,36 @@ public sealed partial class DebugWindowHost : CanvasLayer
     private Vector2 _lastCardPosition;
     private bool _hasCascadeOrigin;
 
+    /// <summary>
+    /// Phone-class mode, resolved once (and only once) in <see cref="_Ready"/> on the main thread.
+    /// Density already has rebuild-time preview semantics, so a live mode switch is deliberately not
+    /// supported: opening a window in a different mode requires a fresh host (restart the UI).
+    /// </summary>
+    private bool _isPhone;
+
+    private Func<Rect2> _safeAreaReader = DefaultSafeAreaReader;
+    private bool _hasPhonePlacementRect;
+    private Rect2 _phonePlacementRect;
+
+    /// <summary>
+    /// Test seam: replaces the native display-safe-area read. Defaults to
+    /// <see cref="DisplayServer.GetDisplaySafeArea"/> wrapped as a <see cref="Rect2"/>; replaceable
+    /// by the compiled probe only (never a project setting or game-visible override). Main-thread
+    /// only. The host never inspects this delegate's origin — synthetic coordinates go through the
+    /// same conversion and placement path as native ones.
+    /// </summary>
+    internal Func<Rect2> SafeAreaReader
+    {
+        get => _safeAreaReader;
+        set => _safeAreaReader = value ?? DefaultSafeAreaReader;
+    }
+
     public override void _Ready()
     {
         DebugUiScale.EnsureRegistered();
         Layer = HostLayer;
         _viewport = GetViewport();
+        _isPhone = DebugUiScale.IsPhoneMode;
         DebugWindowRegistry.WindowOpenRequested += OnWindowOpenRequested;
         if (_viewport != null)
             _viewport.SizeChanged += OnViewportResized;
@@ -63,6 +88,13 @@ public sealed partial class DebugWindowHost : CanvasLayer
     {
         while (_pending.TryDequeue(out var request))
             HandleOpenRequest(request);
+
+        // Phone windows track the native safe rectangle every frame (main thread). This covers a
+        // safe-area change that never emits a viewport SizeChanged event (e.g. an inset appearing
+        // while the window is already full-screen). Placement is only written when the mapped
+        // rectangle actually changes, so settled cards are not re-laid-out needlessly.
+        if (_isPhone)
+            ReconcilePhoneSafeArea();
 
         // Optional live title: a card whose content publishes "info_debug_window_title" metadata
         // updates its own title label only, without the host knowing anything about that window.
@@ -108,6 +140,8 @@ public sealed partial class DebugWindowHost : CanvasLayer
         AddChild(card.Panel);
         _windows[request.Name] = card;
         PositionCard(card);
+        if (_isPhone)
+            ReconcilePhoneStack();
         Callable.From(ClampAllCards).CallDeferred();
     }
 
@@ -205,11 +239,36 @@ public sealed partial class DebugWindowHost : CanvasLayer
         scroll.AddChild(content);
         layout.AddChild(scroll);
 
+        // Phone-only chrome: the fullscreen card is the input boundary for its rectangle, so the
+        // panel/layout/header/scroll chain explicitly keeps the blocking filter (Control's default
+        // is STOP). The title label and drag spacer stay Ignore and the close control stays a real
+        // Button, so the header still routes its own clicks and content still scrolls. The desktop
+        // tree is deliberately left untouched (no explicit filters, no full-viewport STOP wrapper).
+        if (_isPhone)
+        {
+            panel.MouseFilter = Control.MouseFilterEnum.Stop;
+            layout.MouseFilter = Control.MouseFilterEnum.Stop;
+            header.MouseFilter = Control.MouseFilterEnum.Stop;
+            scroll.MouseFilter = Control.MouseFilterEnum.Stop;
+        }
+
         return true;
     }
 
     private void OnHeaderGuiInput(WindowCard card, InputEvent @event)
     {
+        // Phone windows never float: refusing motion here (before any mouse/touch handling) means
+        // neither the header drag nor an emulated-mouse tap on the header can move or reorder the
+        // fullscreen card. The close button keeps its own Pressed hookup and content keeps its
+        // ScrollContainer, so this returns before any branch that would reinterpret the event.
+        if (_isPhone)
+        {
+            card.Pressed = false;
+            card.Dragging = false;
+            card.DragDistance = 0f;
+            return;
+        }
+
         // Mouse-driven; touch arrives through the engine's emulate_mouse_from_touch (default true).
         if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
         {
@@ -243,6 +302,8 @@ public sealed partial class DebugWindowHost : CanvasLayer
             return;
 
         MoveChild(card.Panel, GetChildCount() - 1);
+        if (_isPhone)
+            ReconcilePhoneStack();
     }
 
     private void CloseWindow(string name)
@@ -250,16 +311,64 @@ public sealed partial class DebugWindowHost : CanvasLayer
         if (!_windows.TryGetValue(name, out var card))
             return;
 
+        // Remove from the dictionary first, so a deferred QueueFree cannot leave the closing card
+        // selectable as the top of the stack, and hide it so nothing renders during that frame.
         _windows.Remove(name);
         card.Pressed = false;
         card.Dragging = false;
         card.DragDistance = 0f;
         card.Panel.Visible = false;
         card.Panel.QueueFree();
+        if (_isPhone)
+            ReconcilePhoneStack();
+    }
+
+    /// <summary>
+    /// Phone stack reconciliation: sibling order <em>is</em> the stack (no second store). Exactly the
+    /// last still-owned card in sibling order is visible; every lower card stays in the tree with its
+    /// content, state and scroll position intact but hidden and input-inactive. Closing a non-top
+    /// card therefore cannot disturb the top, and closing the top reveals its predecessor.
+    /// </summary>
+    private void ReconcilePhoneStack()
+    {
+        if (!_isPhone)
+            return;
+
+        WindowCard top = null;
+        var topIndex = int.MinValue;
+        foreach (var card in _windows.Values)
+        {
+            card.Pressed = false;
+            card.Dragging = false;
+            card.DragDistance = 0f;
+
+            if (card.Panel.GetParent() != this)
+                continue;
+
+            var index = card.Panel.GetIndex();
+            if (index >= topIndex)
+            {
+                topIndex = index;
+                top = card;
+            }
+        }
+
+        foreach (var card in _windows.Values)
+            card.Panel.Visible = card == top;
     }
 
     private void PositionCard(WindowCard card)
     {
+        if (_isPhone)
+        {
+            var rect = ResolvePhonePlacementRect();
+            _hasPhonePlacementRect = true;
+            _phonePlacementRect = rect;
+            card.Panel.Position = rect.Position;
+            card.Panel.Size = rect.Size;
+            return;
+        }
+
         var bounds = GetVisibleBounds();
         card.Panel.Size = DesiredSize(bounds);
 
@@ -276,11 +385,27 @@ public sealed partial class DebugWindowHost : CanvasLayer
 
     private void MoveCard(WindowCard card, Vector2 pos)
     {
+        if (_isPhone)
+        {
+            card.Pressed = false;
+            card.Dragging = false;
+            card.DragDistance = 0f;
+            return;
+        }
+
         card.Panel.Position = ClampToBounds(pos, card.Panel.Size, GetVisibleBounds());
     }
 
     private void OnViewportResized()
     {
+        if (_isPhone)
+        {
+            // The stretch/layout update that follows a resize changes the final transform, so the
+            // recomputation is deferred and forced (the previous rectangle may coincidentally match).
+            Callable.From(ReapplyPhonePlacement).CallDeferred();
+            return;
+        }
+
         var bounds = GetVisibleBounds();
         foreach (var card in _windows.Values)
             card.Panel.Size = DesiredSize(bounds);
@@ -291,9 +416,159 @@ public sealed partial class DebugWindowHost : CanvasLayer
 
     private void ClampAllCards()
     {
+        if (_isPhone)
+        {
+            ReapplyPhonePlacement();
+            return;
+        }
+
         var bounds = GetVisibleBounds();
         foreach (var card in _windows.Values)
             card.Panel.Position = ClampToBounds(card.Panel.Position, card.Panel.Size, bounds);
+    }
+
+    // ---- phone placement -------------------------------------------------
+
+    private static Rect2 DefaultSafeAreaReader()
+    {
+        var rect = DisplayServer.GetDisplaySafeArea();
+        return new Rect2(rect.Position.X, rect.Position.Y, rect.Size.X, rect.Size.Y);
+    }
+
+    /// <summary>
+    /// Maps a native (display-space) safe-area rectangle into host — i.e. card-parent — logical
+    /// coordinates. Pure: no native reads, no scaling by <see cref="DebugUiScale.Factor"/>, no
+    /// window-origin subtraction of its own and no camera transform.
+    ///
+    /// <para><paramref name="hostToScreen"/> is the panel-independent host→screen transform
+    /// (<c>panel.GetScreenTransform() * panel.GetTransform().AffineInverse()</c>), which already
+    /// folds in window position, stretch and orientation; its affine inverse therefore maps the
+    /// display rectangle straight to host coordinates. All four corners are transformed and the
+    /// min/max rectangle is intersected with the visible host rect. An empty/nonpositive/non-finite
+    /// safe rect, a non-finite or singular transform, a non-positive visible rect or an empty
+    /// intersection yields the full visible host rect (the documented fallback), never a partial or
+    /// inverted inset. Arbitrarily rotated/skewed host layers are not claimed to be supported.</para>
+    /// </summary>
+    internal static Rect2 MapDisplaySafeAreaToHost(Rect2 safeDisplay, Rect2 visibleHost, Transform2D hostToScreen)
+    {
+        if (!visibleHost.IsFinite() || visibleHost.Size.X <= 0f || visibleHost.Size.Y <= 0f)
+            return visibleHost;
+
+        if (!safeDisplay.IsFinite() || safeDisplay.Size.X <= 0f || safeDisplay.Size.Y <= 0f)
+            return visibleHost;
+
+        if (!hostToScreen.Origin.IsFinite() || !hostToScreen.X.IsFinite() || !hostToScreen.Y.IsFinite())
+            return visibleHost;
+
+        if (Mathf.Abs(hostToScreen.Determinant()) < 1e-6f)
+            return visibleHost;
+
+        var screenToHost = hostToScreen.AffineInverse();
+        var cornerA = screenToHost * safeDisplay.Position;
+        var cornerB = screenToHost * safeDisplay.End;
+        var minX = Mathf.Min(cornerA.X, cornerB.X);
+        var minY = Mathf.Min(cornerA.Y, cornerB.Y);
+        var maxX = Mathf.Max(cornerA.X, cornerB.X);
+        var maxY = Mathf.Max(cornerA.Y, cornerB.Y);
+
+        var mapped = new Rect2(minX, minY, maxX - minX, maxY - minY);
+        var intersection = mapped.Intersection(visibleHost);
+        if (!intersection.IsFinite() || intersection.Size.X <= 0f || intersection.Size.Y <= 0f)
+            return visibleHost;
+
+        return intersection;
+    }
+
+    /// <summary>
+    /// The live card whose panel supplies the host→screen transform: the top of the phone stack when
+    /// one exists (any attached card works, because the panel's own translation is cancelled).
+    /// </summary>
+    private Control TopLivePanel()
+    {
+        Control best = null;
+        var bestIndex = int.MinValue;
+        foreach (var card in _windows.Values)
+        {
+            var panel = card.Panel;
+            if (panel == null || panel.GetParent() != this)
+                continue;
+
+            var index = panel.GetIndex();
+            if (index >= bestIndex)
+            {
+                bestIndex = index;
+                best = panel;
+            }
+        }
+
+        return best;
+    }
+
+    private Rect2 GetVisibleRect()
+    {
+        var viewport = _viewport ?? GetViewport();
+        return viewport?.GetVisibleRect() ?? new Rect2();
+    }
+
+    /// <summary>
+    /// Resolves the phone placement rectangle through the production mapper. Returns the full visible
+    /// rect when no panel is attached (nothing to derive a transform from) or when the mapper falls
+    /// back, so a phone card is always placed on a usable, non-empty rectangle.
+    /// </summary>
+    private Rect2 ResolvePhonePlacementRect()
+    {
+        var visible = GetVisibleRect();
+        var panel = TopLivePanel();
+        if (panel == null)
+            return visible;
+
+        var hostToScreen = panel.GetScreenTransform() * panel.GetTransform().AffineInverse();
+        return MapDisplaySafeAreaToHost(ReadDisplaySafeArea(), visible, hostToScreen);
+    }
+
+    private Rect2 ReadDisplaySafeArea()
+    {
+        var reader = _safeAreaReader ?? DefaultSafeAreaReader;
+        return reader();
+    }
+
+    /// <summary>Recomputes and re-applies phone placement (deferred after a resize/layout update).</summary>
+    private void ReapplyPhonePlacement()
+    {
+        if (!_isPhone)
+            return;
+
+        _hasPhonePlacementRect = false;
+        ReconcilePhoneSafeArea();
+    }
+
+    /// <summary>
+    /// Applied from <see cref="_Process"/>: writes the newer placement to every live phone card only
+    /// when the mapped rectangle changed, so a settled stack is stable across frames.
+    /// </summary>
+    private void ReconcilePhoneSafeArea()
+    {
+        if (TopLivePanel() == null)
+        {
+            _hasPhonePlacementRect = false;
+            return;
+        }
+
+        var rect = ResolvePhonePlacementRect();
+        if (rect.Size.X <= 0f || rect.Size.Y <= 0f)
+            return;
+
+        if (_hasPhonePlacementRect && _phonePlacementRect.IsEqualApprox(rect))
+            return;
+
+        _hasPhonePlacementRect = true;
+        _phonePlacementRect = rect;
+
+        foreach (var card in _windows.Values)
+        {
+            card.Panel.Position = rect.Position;
+            card.Panel.Size = rect.Size;
+        }
     }
 
     private static Vector2 ClampToBounds(Vector2 pos, Vector2 size, Vector2 bounds)

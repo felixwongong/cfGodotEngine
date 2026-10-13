@@ -115,13 +115,75 @@ single knob for debug-UI density (`debug_window/*`, `command_console/CommandCons
   `ScaleInheritedConstant`, derived from the value already resolved for that element; at ×1 no extra
   override is installed.
 
-This is a first-pass density sweep only (**vs-1 of run `debug-ui-mobile`**). It does **not** add
-fullscreen placement, safe-area insets, drag/cascade suppression or the stacked mobile window mode —
-that is vs-2. The host keeps floating cards, and console placement is only deferred-clamped into the
-viewport at ×2 (the ×1 desktop initial position is preserved). The host close button keeps no
-explicit minimum at ×1 and gets a 120×120 touch target at ×2. At ×2 a 1080-wide phone shows
-increased horizontal scrolling (cells 240→480 px, action minima 48→96 px; a four-column grid row
-needs ≈1900 px against ≈945 px of card content), an accepted first-pass limit rather than completed
-phone usability.
+This is the density half of run `debug-ui-mobile` (**vs-1**). The fullscreen/phone half (**vs-2**)
+is the contract below; vs-1 alone did **not** add safe-area insets, drag/cascade suppression or the
+stacked phone window mode.
+
+#### Phone fullscreen debug windows (vs-2 of run `debug-ui-mobile`)
+
+`DebugWindowHost` (`debug/debug_window/DebugWindowHost.cs`, Layer 126) resolves
+`DebugUiScale.IsPhoneMode` **once** in `_Ready` on the Godot main thread. Phone mode is therefore
+fixed per host — a preview change needs a fresh UI/restart (no live rescaling). On a phone-class
+screen the host replaces floating cards with a single fullscreen window:
+
+- **Placement is the mapped display safe area, never a ratio.** The host reads
+  `DisplayServer.GetDisplaySafeArea()` (replaceable only by the compiled editor probe through the
+  `internal` instance `SafeAreaReader` seam — never a setting, static or game-visible override) and
+  calls the pure, `internal static`
+  `MapDisplaySafeAreaToHost(safeDisplay, visibleHost, hostToScreen)`. The caller derives
+  `hostToScreen = panel.GetScreenTransform() * panel.GetTransform().AffineInverse()`, which cancels
+  the card's own translation and already folds in window position, `canvas_items` stretch and
+  orientation. All four corners of the safe rect are transformed by the affine inverse, the min/max
+  rectangle is intersected with `Viewport.GetVisibleRect()`, and the result is assigned as the whole
+  card rect. The mapper never multiplies by `DebugUiScale.Factor`, never subtracts a window origin a
+  second time, never applies a camera transform and never rounds insets before conversion.
+- **Fallback**: an empty/nonpositive/non-finite safe rect, a non-finite or singular transform, a
+  nonpositive visible rect or an empty intersection yields the full visible host rect. A headless
+  SubViewport (no real display mapping) therefore lands on the full visible rect rather than the root
+  display's safe area — an invalid/unsupported native rect is a fallback, **not** evidence of notch
+  protection. Arbitrarily rotated/skewed host layers are neither introduced nor claimed supported.
+- **Safe-area changes without a viewport resize** are picked up by a per-frame main-thread
+  recomputation that writes placement only when the mapped rectangle actually changes; a viewport
+  resize additionally schedules a forced deferred recomputation after stretch/layout settles.
+- **No drag, no cascade, no ratio sizing.** Phone `PositionCard` assigns the safe rect Position/Size
+  and returns before the cascade arithmetic (it never writes the cascade origin); `DesiredSize` is
+  bypassed entirely (no 92 %/65 % ratios, no width/height caps); `MoveCard` clears press/drag state
+  and refuses motion; `OnHeaderGuiInput` clears press/drag/distance and returns before any mouse
+  handling, so neither native touch nor emulated mouse can move or reorder the card. The close button
+  keeps its own `Pressed` hookup and content keeps its `ScrollContainer`.
+- **Stacking reuses sibling order** — there is no second stack store. A newly attached card is
+  brought to front; an existing reopen uses `BringToFront` without re-running the factory; after
+  every open/reopen/close exactly the last live dictionary-owned card is `Visible`. Lower cards stay
+  in-tree with their content, selection and scroll state, hidden and input-inactive. The closing card
+  is removed from the dictionary and hidden **before** `QueueFree`, so a deferred free can never leave
+  it selectable as the top. Closing a non-top card leaves the top untouched; closing the last card
+  leaves zero live cards and no stranded surface. Reopen after a real close builds fresh content (a
+  new instance).
+- **Phone-only chrome filters**: the panel/layout/header/scroll chain explicitly keeps
+  `MouseFilter = Stop`. A plain `Control` defaults to `Stop` but `Container` subclasses default to
+  `Pass`, so the blocking filter is stated rather than inherited; the title label and drag spacer stay
+  `Ignore` and the close control stays a real `Button`. The desktop tree adds no explicit filters and
+  no full-viewport STOP wrapper, and game input dispatch is not migrated.
+- **Desktop and touch tablets are unchanged**: floating placement, 32 px cascade, drag and clamp all
+  keep their original expressions, and the desktop probe JSON stays byte-identical at 1080×2560 and
+  1920×1920.
+
+Explicit limits and held evidence (no blanket "mobile usable" or "safe area verified" claim):
+
+- The host stays at Layer **126** and `CommandConsoleOverlay` at **128**: the console DEBUG entry
+  renders and takes input above the fullscreen card and may deliberately overlap its content; the
+  console itself does not respect display cutouts and is not safe-area redesigned. No automatic
+  console hiding, no switcher, no backdrop and no layer change is added.
+- **Horizontal overflow is measured, real and accepted.** At 1080×2560 with zero safe insets the
+  phone panel is **1080** wide; the 24 px content margins leave **1032** logical px (less the settled
+  vertical-scrollbar width), while the viewer's intrinsic content is **1055** px (action row:
+  `Changes only` ≈388 + `Copy TSV` ≈255 + `Copy changes` ≈380 + two 16 px gaps) — a 23 px overflow —
+  and the four-column table needs **1944** px. Table horizontal scrolling is required and works
+  (programmatic scroll-to-max reaches the last header cell and the table's right edge); the action-row
+  overflow is clipped at the card edge. Real six-tab/device reachability is a human hold.
+- Human holds, not inferred: real cutout/notch behavior (including double-inset avoidance and rotation
+  with two windows open), physical tap/scroll/edit routing and board-input resumption after closing
+  the last card, console overlap/keyboard occlusion, visible-window pixel parity, native tablet
+  classification, and the `debug/ui_scale_mode` Project-Settings discoverability carried from vs-1.
 
 See CatSweeper's `.agent/systems/subtrees.md` for the subtree workflow.
