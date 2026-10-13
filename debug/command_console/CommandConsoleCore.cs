@@ -32,6 +32,39 @@ public static class CommandConsoleCore
         }
     }
 
+    /// <summary>
+    /// Flattens the same scope/handler walk as <see cref="DiscoverCommands"/> but returns each
+    /// command's declared <see cref="CommandAvailability"/> keyed by full space-joined path.
+    /// Handlers that fail <c>TryGetHandler</c> (or resolve to null) are skipped; the walk order
+    /// matches <see cref="DiscoverCommands"/>. Engine-free and non-executing.
+    /// </summary>
+    public static IReadOnlyDictionary<string, CommandAvailability> DiscoverAvailability(CommandService service)
+    {
+        var availability = new Dictionary<string, CommandAvailability>();
+        DiscoverAvailabilityRecursive(service, string.Empty, availability);
+        return availability;
+    }
+
+    private static void DiscoverAvailabilityRecursive(
+        CommandService service, string prefix, Dictionary<string, CommandAvailability> availability)
+    {
+        foreach (var handlerName in service.GetHandlerNames())
+        {
+            var full = string.IsNullOrEmpty(prefix) ? handlerName : $"{prefix} {handlerName}";
+            if (service.TryGetHandler(handlerName, out var handler) && handler != null)
+                availability[full] = CommandService.ReadAvailability(handler);
+        }
+
+        foreach (var scopeName in service.GetScopeNames())
+        {
+            var nextPrefix = string.IsNullOrEmpty(prefix) ? scopeName : $"{prefix} {scopeName}";
+            if (service.TryGetScope(scopeName, out var subService))
+            {
+                DiscoverAvailabilityRecursive(subService!, nextPrefix, availability);
+            }
+        }
+    }
+
     public static IReadOnlyList<string> GetCompletions(string partial, IReadOnlyList<string> allCommands)
     {
         if (string.IsNullOrWhiteSpace(partial))

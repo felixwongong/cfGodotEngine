@@ -52,39 +52,82 @@ public static class CommandExplorerWindow
     /// <summary>
     /// Walks the service in current enumeration order (handlers then scopes, matching
     /// <see cref="CommandConsoleCore.DiscoverCommands"/>) and returns root entries carrying recursive
-    /// <see cref="CommandTreeEntry.Children"/>. Scope entries are always non-command rows — including
-    /// empty scopes — and command entries are always leaves. Handlers are never executed and no
-    /// Controls are constructed.
+    /// <see cref="CommandTreeEntry.Children"/>. Scope entries are always non-command rows and command
+    /// entries are always leaves. A command leaf is visible iff its handler resolves and
+    /// <see cref="CommandService.ReadAvailability"/> intersects <paramref name="currentEnv"/>; a
+    /// handler that no longer resolves keeps its leaf (unchanged legacy behaviour). A scope branch is
+    /// kept iff its subtree has at least one visible command leaf, or it was structurally empty (no
+    /// registered handlers or scopes at all) — so an env-filtered scope is pruned while an empty scope
+    /// stays a branch. Handlers are never executed and no Controls are constructed. The default
+    /// environment (<see cref="CommandAvailability.Both"/>) keeps every leaf.
     /// </summary>
-    public static IReadOnlyList<CommandTreeEntry> BuildCommandTree(CommandService service)
+    public static IReadOnlyList<CommandTreeEntry> BuildCommandTree(
+        CommandService service, CommandAvailability currentEnv = CommandAvailability.Both)
     {
         var entries = new List<CommandTreeEntry>();
         if (service == null)
             return entries;
 
-        BuildSiblings(service, string.Empty, entries);
+        BuildSiblings(service, string.Empty, currentEnv, entries);
         return entries;
     }
 
-    private static void BuildSiblings(CommandService service, string prefix, List<CommandTreeEntry> siblings)
+    /// <summary>
+    /// Returns, by name, the visible/total counts discovered under one service. <c>Visible</c> counts
+    /// command leaves matching the environment; <c>Registered</c> counts every handler and scope that
+    /// structurally exists (used to distinguish an env-pruned scope from a structurally empty one).
+    /// </summary>
+    private static (int Visible, int Registered) BuildSiblings(
+        CommandService service, string prefix, CommandAvailability currentEnv, List<CommandTreeEntry> siblings)
     {
+        var visible = 0;
+        var registered = 0;
+
         foreach (var handlerName in service.GetHandlerNames())
         {
+            registered++;
             var path = string.IsNullOrEmpty(prefix) ? handlerName : $"{prefix} {handlerName}";
+
+            // A handler that no longer resolves (null result) keeps its leaf: selection/run already
+            // handle stale registrations, so the tree must not silently drop a name. Otherwise the
+            // leaf is visible iff the handler's availability intersects the current environment.
+            if (service.TryGetHandler(handlerName, out var handler) && handler != null
+                && (CommandService.ReadAvailability(handler) & currentEnv) == 0)
+                continue;
+
             siblings.Add(CommandTreeEntry.Command(service, handlerName, path));
+            visible++;
         }
 
         foreach (var scopeName in service.GetScopeNames())
         {
+            registered++;
             var path = string.IsNullOrEmpty(prefix) ? scopeName : $"{prefix} {scopeName}";
             var entry = CommandTreeEntry.Scope(scopeName, path);
-            siblings.Add(entry);
+
+            var childVisible = 0;
+            var childRegistered = 0;
 
             // A service registered under several prefixes yields a separate branch per prefix, and an
             // unresolvable scope stays a (possibly empty) branch rather than becoming a runnable leaf.
             if (service.TryGetScope(scopeName, out var subService) && subService != null)
-                BuildSiblings(subService, path, entry.ChildrenInternal);
+            {
+                var child = BuildSiblings(subService, path, currentEnv, entry.ChildrenInternal);
+                childVisible = child.Visible;
+                childRegistered = child.Registered;
+            }
+
+            // Keep the scope iff it exposes at least one visible leaf, or it was structurally empty
+            // (no handlers/scopes at all). This drops scopes whose every leaf was env-filtered while
+            // preserving the pinned "empty scope is a branch, not a runnable leaf" behaviour.
+            if (childVisible > 0 || childRegistered == 0)
+                siblings.Add(entry);
+
+            visible += childVisible;
+            registered += childRegistered;
         }
+
+        return (visible, registered);
     }
 
     /// <summary>
@@ -593,7 +636,11 @@ public static class CommandExplorerWindow
             // itself become the hidden root and vanish from the tree.
             var root = _tree.CreateItem();
 
-            var entries = BuildCommandTree(CommandService.instance);
+            // The only Godot boundary for the availability filter: the pure BuildCommandTree is
+            // handed an explicit environment. Resolved once per refresh so the status line's command
+            // count reflects the filtered tree.
+            var currentEnv = Engine.IsEditorHint() ? CommandAvailability.Editor : CommandAvailability.Runtime;
+            var entries = BuildCommandTree(CommandService.instance, currentEnv);
             var commandCount = 0;
             foreach (var entry in entries)
                 commandCount += AddEntry(root, entry);

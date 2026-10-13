@@ -14,8 +14,44 @@ public sealed class HelpCommand : ICommandHandler
 {
     public bool Execute(Parameters param)
     {
-        var commands = CommandConsoleCore.DiscoverCommands(CommandService.instance);
-        Log.LogInfo($"help: {JsonSerializer.Serialize(new Dictionary<string, object> { ["commands"] = commands })}");
+        Log.LogInfo($"help: {JsonSerializer.Serialize(BuildPayload(CommandService.instance))}");
         return true;
+    }
+
+    /// <summary>
+    /// Builds the `help` payload. <c>commands</c> is the unchanged plain list of full command
+    /// paths (a missing key must not break older consumers). <c>availability</c> additively tags
+    /// each command with its wire availability string (<c>editor</c>|<c>runtime</c>|<c>both</c>);
+    /// unknown future flag values fall back to the lowercased enum name. Tags rather than filters:
+    /// <c>console_list</c> is cross-context discovery, so it must not lie about what exists.
+    /// </summary>
+    public static Dictionary<string, object> BuildPayload(CommandService service)
+    {
+        var commands = CommandConsoleCore.DiscoverCommands(service);
+
+        var availability = new Dictionary<string, string>();
+        foreach (var pair in CommandConsoleCore.DiscoverAvailability(service))
+            availability[pair.Key] = AvailabilityWire(pair.Value);
+
+        return new Dictionary<string, object>
+        {
+            ["commands"] = commands,
+            ["availability"] = availability,
+        };
+    }
+
+    private static string AvailabilityWire(CommandAvailability value)
+    {
+        switch (value)
+        {
+            case CommandAvailability.Editor:
+                return "editor";
+            case CommandAvailability.Runtime:
+                return "runtime";
+            case CommandAvailability.Both:
+                return "both";
+            default:
+                return value.ToString().ToLowerInvariant();
+        }
     }
 }
