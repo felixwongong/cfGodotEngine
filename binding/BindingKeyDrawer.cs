@@ -117,7 +117,13 @@ namespace cfGodotEngine.Binding
             if (editedObject is BindingBase bindingBase)
                 source = bindingBase.FindBindingSource();
 
-            return source == null ? Array.Empty<string>() : source.GetBindingKeys().ToArray();
+            if (source == null)
+                return Array.Empty<string>();
+
+            if (editedObject is EventBinding)
+                return (source as IEventSource)?.GetEventKeys()?.ToArray() ?? Array.Empty<string>();
+
+            return source.GetBindingKeys().ToArray();
         }
     }
 }

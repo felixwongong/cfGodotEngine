@@ -12,7 +12,7 @@ namespace cfGodotEngine.UI;
 /// the subtree's Binding nodes.
 /// </summary>
 [GlobalClass]
-public partial class UIComponent : Control, IBindingSource, ISourceReceiver
+public partial class UIComponent : Control, IBindingSource, ISourceReceiver, IEventSource
 {
     protected IBindingSource _injectedSource;
 
@@ -33,6 +33,13 @@ public partial class UIComponent : Control, IBindingSource, ISourceReceiver
     }
 
     public IPropertyMap GetBindings => Engine.IsEditorHint() ? null : _injectedSource?.GetBindings;
+
+    public virtual IEnumerable<string> GetEventKeys()
+    {
+        return (_injectedSource as IEventSource)?.GetEventKeys() ?? Array.Empty<string>();
+    }
+
+    public IEventMap GetEvents => Engine.IsEditorHint() ? null : (_injectedSource as IEventSource)?.GetEvents;
 
     public IDisposable BeginUpdate() => _injectedSource?.BeginUpdate();
 }

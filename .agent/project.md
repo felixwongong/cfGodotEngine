@@ -32,6 +32,45 @@ CatSweeper references this framework for:
 - Settings and Google Sheets helpers.
 - Scene management helpers.
 
+### Event binding contract
+
+`cfGodotEngine.Binding` carries a UI→source **event channel** beside the one-way source→UI
+property/collection channels. It is hand-authored, not generator-emitted:
+
+- A source opts in by implementing `IEventSource` (`binding/IEventSource.cs`) next to its
+  `[BindingSource]` attribute: `IEnumerable<string> GetEventKeys()` and `IEventMap GetEvents`
+  (`binding/IEventMap.cs`). There is no `static abstract` member and no registry — the
+  `BindingSourceGenerator` has no event support yet (it lives in a different subtree), so a source
+  declares `public readonly BindableEvent Foo = new();` / `BindableEvent<int> Bar = new();` members
+  and builds `EventMap.Build().Add(nameof(Foo), Foo).Add(nameof(Bar), Bar).Build()`
+  (`binding/EventMap.cs`, `binding/BindableEvent.cs`). `GetEvents` may return `null` while the source
+  is not ready — `null` means *pending*, the null-`PropertyMap` rule.
+- `EventBinding` (`binding/EventBinding.cs`, a `BindingBase` node, **not** `[Tool]`) is added as a
+  child of the emitting control. The target convention mirrors `Binding`: the watched node is always
+  the **parent** (no NodePath). It exports a signal name (default `pressed`) and an optional argument;
+  on the parent's signal it calls `GetEvents.TryEmit(key, arg)` and contains a handler/coercion
+  exception with an ungated `Log.LogException`. It is inert in the editor
+  (`Engine.IsEditorHint()`), so an editor press never mutates game state, and it disconnects
+  deterministically in `_ExitTree`.
+- **Round-trip (intended).** UI signal → `EventBinding` emits the named source event (with payload) →
+  the source's subscribed handler mutates its own `Bindable<T>` state → its `PropertyMap` raises
+  change keys → existing one-way `Binding` nodes re-render. A handler that mutates state outside its
+  bindables leaves the UI stale — a source-authoring contract, not framework-enforced. Events
+  dispatch synchronously on the signal handler's (main) thread and do **not** interact with
+  `IBindingSource.BeginUpdate()`; batching stays a tool the handler uses internally.
+- **Events are verbs, not state.** `BindableEvent` / `BindableEvent<T>` deliberately do **not**
+  implement `IBindableBase`, so they can never enter a `PropertyMap` or the binding-key list.
+- **The payload channel is `object`.** `IEventMap.TryEmit(string, object)` carries the payload;
+  `BindableEvent<T>` erases once at the framework boundary through the `internal
+  IBindableEventUntyped` (the same single-erasure-point doctrine as `IBindableUntyped.cs`): an exact
+  `T` is forwarded as-is, `null` is forwarded as `default(T)` only when `T` is null-representable
+  (reference type or `Nullable<>`), and otherwise a **narrow** `Convert.ChangeType` coercion applies —
+  it exists because a scene-serialized Variant int arrives as a boxed `long`, so `payload is int`
+  would fail for a numeric picker. Anything richer is a source-authoring contract: author the wider
+  `T`, or convert in the handler.
+- Subscriptions are weak-referenced `Relay` subscriptions — retain the `Subscription` handle returned
+  by `BindableEvent.Subscribe`.
+
 ### Scene management contract
 
 `ISceneManager<TScene>` (`scene/ISceneManager.cs`, implemented by `scene/GodotSceneManager.cs`)
